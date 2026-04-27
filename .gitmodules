@@ -1,0 +1,9 @@
+[submodule ".refs/effect-atom"]
+	path = .refs/effect-atom
+	url = https://github.com/tim-smart/effect-atom.git
+[submodule ".refs/tiptap"]
+	path = .refs/tiptap
+	url = https://github.com/ueberdosis/tiptap.git
+[submodule ".refs/effect"]
+	path = .refs/effect
+	url = https://github.com/Effect-TS/effect.git
