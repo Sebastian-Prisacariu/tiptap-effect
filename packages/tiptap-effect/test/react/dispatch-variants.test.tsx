@@ -8,7 +8,7 @@ import { ToggleMarkCommand } from "tiptap-effect/command/commands"
 import {
   EditorScope,
   TiptapView,
-  useDispatchEffect,
+  useDispatch,
   useDispatchPromise,
   useRawEditor,
 } from "tiptap-effect/react"
@@ -44,17 +44,17 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <RegistryContext.Provider value={registry}>{children}</RegistryContext.Provider>
 )
 
-describe("useDispatchEffect", () => {
+describe("useDispatch", () => {
   it("returns an Effect that, when run, dispatches the Command and toggles bold", async () => {
     let exposed: {
-      dispatchEffect: ReturnType<typeof useDispatchEffect>
+      dispatch: ReturnType<typeof useDispatch>
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
     const Probe: React.FC = () => {
-      const dispatchEffect = useDispatchEffect()
+      const dispatch = useDispatch()
       const editor = useRawEditor({ unsafe: true })
-      exposed = { dispatchEffect, editor }
+      exposed = { dispatch, editor }
       return null
     }
 
@@ -85,7 +85,7 @@ describe("useDispatchEffect", () => {
 
     // The effect is composable — run it via Effect.runPromise.
     await act(async () => {
-      const program = exposed!.dispatchEffect(ToggleBold, undefined)
+      const program = exposed!.dispatch(ToggleBold, undefined)
       await Effect.runPromise(program)
     })
 

@@ -7,8 +7,8 @@ import { ToggleMarkCommand } from "tiptap-effect/command/commands"
 import {
   EditorScope,
   TiptapView,
-  useDispatch,
-  useHistory,
+  useDispatchPromise,
+  useHistoryPromise,
   useRawEditor,
 } from "tiptap-effect/react"
 import { defineEditorSchema } from "tiptap-effect/schema"
@@ -43,17 +43,17 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <RegistryContext.Provider value={registry}>{children}</RegistryContext.Provider>
 )
 
-describe("useDispatch + useHistory", () => {
+describe("useDispatchPromise + useHistoryPromise", () => {
   it("dispatch toggles bold; history.undo restores", async () => {
     let exposed: {
-      dispatch: ReturnType<typeof useDispatch>
-      history: ReturnType<typeof useHistory>
+      dispatch: ReturnType<typeof useDispatchPromise>
+      history: ReturnType<typeof useHistoryPromise>
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
     const Probe: React.FC = () => {
-      const dispatch = useDispatch()
-      const history = useHistory()
+      const dispatch = useDispatchPromise()
+      const history = useHistoryPromise()
       const editor = useRawEditor({ unsafe: true })
       exposed = { dispatch, history, editor }
       return null
@@ -117,9 +117,9 @@ describe("useDispatch + useHistory", () => {
     // the atom is already resolved. We verify the runtime path of the
     // guard by manually calling dispatch right after render before any
     // act(). In practice we'll see Success quickly.
-    let exposed: ReturnType<typeof useDispatch> | null = null
+    let exposed: ReturnType<typeof useDispatchPromise> | null = null
     const Probe: React.FC = () => {
-      exposed = useDispatch()
+      exposed = useDispatchPromise()
       return null
     }
     render(
@@ -145,26 +145,26 @@ describe("useDispatch + useHistory", () => {
 
   it("history is scoped to the current EditorScope", async () => {
     let exposedA: {
-      dispatch: ReturnType<typeof useDispatch>
-      history: ReturnType<typeof useHistory>
+      dispatch: ReturnType<typeof useDispatchPromise>
+      history: ReturnType<typeof useHistoryPromise>
       editor: ReturnType<typeof useRawEditor>
     } | null = null
     let exposedB: {
-      history: ReturnType<typeof useHistory>
+      history: ReturnType<typeof useHistoryPromise>
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
     const ProbeA: React.FC = () => {
       exposedA = {
-        dispatch: useDispatch(),
-        history: useHistory(),
+        dispatch: useDispatchPromise(),
+        history: useHistoryPromise(),
         editor: useRawEditor({ unsafe: true }),
       }
       return null
     }
     const ProbeB: React.FC = () => {
       exposedB = {
-        history: useHistory(),
+        history: useHistoryPromise(),
         editor: useRawEditor({ unsafe: true }),
       }
       return null

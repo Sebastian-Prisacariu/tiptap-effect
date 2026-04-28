@@ -106,49 +106,25 @@ const resultToEffect = <A, E>(
   return Effect.never
 }
 
+const runOneShotEffect = <A, E>(
+  registry: Registry.Registry,
+  effect: Effect.Effect<A, E, CommandExecutor>,
+): Effect.Effect<A, E> =>
+  Effect.promise(() => runOneShotResult(registry, effect)).pipe(
+    Effect.flatMap(resultToEffect),
+  )
+
+const effectToResultPromise = <A, E>(
+  effect: Effect.Effect<A, E>,
+): Promise<Result.Result<A, E>> =>
+  Effect.runPromiseExit(effect).then(Result.fromExit)
+
 /**
- * Dispatch a Command and receive a `Promise<Result<Out, Err>>`. Useful when
- * you want to handle success/failure in a single branch without try/catch.
+ * Dispatch a Command and receive an `Effect<Out, Err>`. Run it with
+ * `Effect.runPromise`, compose it into a larger Effect program, or use
+ * `useDispatchPromise` when working in promise-land.
  */
 export const useDispatch = (): (<Op extends string, In, Out, Err>(
-  cmd: EditorRunnableCommand<Op, In, Out, Err>,
-  input: In,
-) => Promise<Result.Result<Out, DispatchError<Err>>>) => {
-  const { atom } = useEditorScope()
-  const result = useAtomValue(atom)
-  const registry = useRegistry()
-
-  return React.useCallback(
-    <Op extends string, In, Out, Err>(
-      cmd: EditorRunnableCommand<Op, In, Out, Err>,
-      input: In,
-    ): Promise<Result.Result<Out, DispatchError<Err>>> => {
-      if (!Result.isSuccess(result)) {
-        return Promise.resolve(
-          Result.fail<DispatchError<Err>, Out>(
-            new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
-          ),
-        )
-      }
-      const editor = result.value._internal.editor
-      const effect = Effect.gen(function* () {
-        const exec = yield* CommandExecutor
-        return yield* exec.run(editor, cmd, input)
-      })
-      return runOneShotResult<Out, DispatchError<Err>>(registry, effect)
-    },
-    [result, registry],
-  )
-}
-
-/**
- * Dispatch a Command and receive an `Effect<Out, Err>` instead of a Promise.
- * Use when you want to compose the dispatch into a larger Effect program
- * (retries, parallel composition, mapErrors). The returned Effect already
- * has `CommandExecutor` provided via the package's runtime — consumers don't
- * need to provide a layer.
- */
-export const useDispatchEffect = (): (<Op extends string, In, Out, Err>(
   cmd: EditorRunnableCommand<Op, In, Out, Err>,
   input: In,
 ) => Effect.Effect<Out, DispatchError<Err>>) => {
@@ -167,15 +143,11 @@ export const useDispatchEffect = (): (<Op extends string, In, Out, Err>(
         )
       }
       const editor = result.value._internal.editor
-      return Effect.promise(() =>
-        runOneShotResult<Out, DispatchError<Err>>(
-          registry,
-          Effect.gen(function* () {
-            const exec = yield* CommandExecutor
-            return yield* exec.run(editor, cmd, input)
-          }),
-        ),
-      ).pipe(Effect.flatMap(resultToEffect))
+      const effect = Effect.gen(function* () {
+        const exec = yield* CommandExecutor
+        return yield* exec.run(editor, cmd, input)
+      })
+      return runOneShotEffect<Out, DispatchError<Err>>(registry, effect)
     },
     [result, registry],
   )
@@ -184,7 +156,25 @@ export const useDispatchEffect = (): (<Op extends string, In, Out, Err>(
 /**
  * Backwards-compatible alias for `useDispatch`.
  */
-export const useDispatchPromise = useDispatch
+export const useDispatchEffect = useDispatch
+
+/**
+ * Dispatch a Command and receive a `Promise<Result<Out, Err>>`.
+ */
+export const useDispatchPromise = (): (<Op extends string, In, Out, Err>(
+  cmd: EditorRunnableCommand<Op, In, Out, Err>,
+  input: In,
+) => Promise<Result.Result<Out, DispatchError<Err>>>) => {
+  const dispatch = useDispatch()
+  return React.useCallback(
+    <Op extends string, In, Out, Err>(
+      cmd: EditorRunnableCommand<Op, In, Out, Err>,
+      input: In,
+    ): Promise<Result.Result<Out, DispatchError<Err>>> =>
+      effectToResultPromise(dispatch(cmd, input)),
+    [dispatch],
+  )
+}
 
 /**
  * Undo/redo controls bound to the current scope's editor, plus the live
@@ -194,8 +184,8 @@ export const useDispatchPromise = useDispatch
  * exactly when the corresponding history stack changes.
  */
 export const useHistory = (): {
-  readonly undo: () => Promise<Result.Result<CommandRecord | null, unknown>>
-  readonly redo: () => Promise<Result.Result<CommandRecord | null, unknown>>
+  readonly undo: () => Effect.Effect<CommandRecord | null, unknown>
+  readonly redo: () => Effect.Effect<CommandRecord | null, unknown>
   readonly past: ReadonlyArray<CommandRecord>
   readonly future: ReadonlyArray<CommandRecord>
 } => {
@@ -212,15 +202,13 @@ export const useHistory = (): {
     const guarded = (
       run: (editor: TiptapEditor) => Effect.Effect<CommandRecord | null, unknown, CommandExecutor>,
     ) =>
-      (): Promise<Result.Result<CommandRecord | null, unknown>> => {
+      (): Effect.Effect<CommandRecord | null, unknown> => {
         if (!Result.isSuccess(result)) {
-          return Promise.resolve(
-            Result.fail<unknown, CommandRecord | null>(
-              new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
-            ),
+          return Effect.fail(
+            new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
           )
         }
-        return runOneShotResult(registry, run(result.value._internal.editor))
+        return runOneShotEffect(registry, run(result.value._internal.editor))
       }
     return {
       undo: guarded((editor) =>
@@ -239,6 +227,24 @@ export const useHistory = (): {
   }, [result, registry])
 
   return { ...controls, past, future }
+}
+
+export const useHistoryPromise = (): {
+  readonly undo: () => Promise<Result.Result<CommandRecord | null, unknown>>
+  readonly redo: () => Promise<Result.Result<CommandRecord | null, unknown>>
+  readonly past: ReadonlyArray<CommandRecord>
+  readonly future: ReadonlyArray<CommandRecord>
+} => {
+  const history = useHistory()
+  return React.useMemo(
+    () => ({
+      past: history.past,
+      future: history.future,
+      undo: () => effectToResultPromise(history.undo()),
+      redo: () => effectToResultPromise(history.redo()),
+    }),
+    [history],
+  )
 }
 
 /**

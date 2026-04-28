@@ -99,6 +99,7 @@ export {
   useDispatchEffect,
   useDispatchPromise,
   useHistory,
+  useHistoryPromise,
   useCommandPending,
   useCommandErrors,
   useRawEditor,

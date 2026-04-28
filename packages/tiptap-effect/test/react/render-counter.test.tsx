@@ -7,7 +7,7 @@ import { ToggleMarkCommand } from "tiptap-effect/command/commands"
 import {
   EditorScope,
   TiptapView,
-  useDispatch,
+  useDispatchPromise,
   useRawEditor,
 } from "tiptap-effect/react"
 import { defineEditorSchema } from "tiptap-effect/schema"
@@ -106,11 +106,11 @@ describe("EditorScope — two scopes, two distinct editors", () => {
   it("<EditorScope id='a'> and <EditorScope id='b'> produce two distinct editor instances; commands dispatched in one don't affect the other", async () => {
     let editorA: ReturnType<typeof useRawEditor> = null
     let editorB: ReturnType<typeof useRawEditor> = null
-    let dispatchA: ReturnType<typeof useDispatch> | null = null
+    let dispatchA: ReturnType<typeof useDispatchPromise> | null = null
 
     const ProbeA: React.FC = () => {
       editorA = useRawEditor({ unsafe: true })
-      dispatchA = useDispatch()
+      dispatchA = useDispatchPromise()
       return null
     }
     const ProbeB: React.FC = () => {

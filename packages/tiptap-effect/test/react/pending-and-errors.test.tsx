@@ -11,7 +11,7 @@ import {
   TiptapView,
   useCommandErrors,
   useCommandPending,
-  useDispatch,
+  useDispatchPromise,
   useRawEditor,
 } from "tiptap-effect/react"
 import { defineEditorSchema } from "tiptap-effect/schema"
@@ -70,14 +70,14 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 describe("useCommandPending", () => {
   it("flips true while a same-op Command is in flight, false on completion", async () => {
     let exposed: {
-      dispatch: ReturnType<typeof useDispatch>
+      dispatch: ReturnType<typeof useDispatchPromise>
       pending: boolean
       editor: ReturnType<typeof useRawEditor>
     } | null = null
     const transitions: boolean[] = []
 
     const Probe: React.FC = () => {
-      const dispatch = useDispatch()
+      const dispatch = useDispatchPromise()
       const pending = useCommandPending("test.slow.hook")
       const editor = useRawEditor({ unsafe: true })
       transitions.push(pending)
@@ -131,7 +131,7 @@ describe("useCommandPending", () => {
 
   it("is scoped to the current EditorScope", async () => {
     let exposedA: {
-      dispatch: ReturnType<typeof useDispatch>
+      dispatch: ReturnType<typeof useDispatchPromise>
       pending: boolean
       editor: ReturnType<typeof useRawEditor>
     } | null = null
@@ -143,7 +143,7 @@ describe("useCommandPending", () => {
     const transitionsB: boolean[] = []
 
     const ProbeA: React.FC = () => {
-      const dispatch = useDispatch()
+      const dispatch = useDispatchPromise()
       const pending = useCommandPending("test.slow.hook")
       const editor = useRawEditor({ unsafe: true })
       transitionsA.push(pending)
@@ -210,12 +210,12 @@ describe("useCommandErrors", () => {
     const events: CommandFailed[] = []
 
     let exposed: {
-      dispatch: ReturnType<typeof useDispatch>
+      dispatch: ReturnType<typeof useDispatchPromise>
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
     const Probe: React.FC = () => {
-      const dispatch = useDispatch()
+      const dispatch = useDispatchPromise()
       const editor = useRawEditor({ unsafe: true })
       useCommandErrors((event) => {
         events.push(event)
@@ -271,7 +271,7 @@ describe("useCommandErrors", () => {
     const eventsA: CommandFailed[] = []
     const eventsB: CommandFailed[] = []
     let exposedA: {
-      dispatch: ReturnType<typeof useDispatch>
+      dispatch: ReturnType<typeof useDispatchPromise>
       editor: ReturnType<typeof useRawEditor>
     } | null = null
     let exposedB: {
@@ -279,7 +279,7 @@ describe("useCommandErrors", () => {
     } | null = null
 
     const ProbeA: React.FC = () => {
-      const dispatch = useDispatch()
+      const dispatch = useDispatchPromise()
       const editor = useRawEditor({ unsafe: true })
       useCommandErrors((event) => {
         eventsA.push(event)

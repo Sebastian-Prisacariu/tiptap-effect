@@ -11,6 +11,7 @@ export {
   useEditorSlice,
   useEditorSubscribe,
   useHistory,
+  useHistoryPromise,
   useCommandPending,
   useCommandErrors,
   useRawEditor,
