@@ -21,18 +21,62 @@ export type MarkJSON<Name extends string = string, Attrs = Record<string, unknow
   readonly attrs?: Attrs
 }
 
+type NodeJSONFor<
+  N extends Record<string, unknown>,
+  M extends Record<string, unknown>,
+> = N[keyof N] extends infer Def
+  ? Def extends NodeDefinition<infer Name, infer Attrs>
+    ? {
+        readonly type: Name
+        readonly attrs?: Attrs
+        readonly content?: ReadonlyArray<NodeJSONFor<N, M>>
+        readonly text?: string
+        readonly marks?: ReadonlyArray<MarkJSONFor<M>>
+      }
+    : never
+  : never
+
+type MarkJSONFor<M extends Record<string, unknown>> =
+  M[keyof M] extends infer Def
+    ? Def extends MarkDefinition<infer Name, infer Attrs>
+      ? MarkJSON<Name, Attrs>
+      : never
+    : never
+
+type NodeDefinitionMap<N extends Record<string, unknown>> = {
+  readonly [K in keyof N]: N[K] extends NodeDefinition<infer _Name, infer _Attrs>
+    ? N[K]
+    : never
+}
+
+type MarkDefinitionMap<M extends Record<string, unknown>> = {
+  readonly [K in keyof M]: M[K] extends MarkDefinition<infer _Name, infer _Attrs>
+    ? M[K]
+    : never
+}
+
 export interface EditorSchema<
-  N extends Record<string, NodeDefinition<any, any>>,
-  M extends Record<string, MarkDefinition<any, any>>,
+  N extends Record<string, unknown>,
+  M extends Record<string, unknown>,
 > {
   readonly nodes: N
   readonly marks: M
-  readonly NodeUnion: Schema.Schema<NodeJSON>
-  readonly MarkUnion: Schema.Schema<MarkJSON>
-  readonly Document: Schema.Schema<NodeJSON>
+  readonly NodeUnion: Schema.Schema<NodeJSONFor<N, M>>
+  readonly MarkUnion: Schema.Schema<MarkJSONFor<M>>
+  readonly Document: Schema.Schema<NodeJSONFor<N, M>>
   readonly tiptapExtensions: Extensions
   readonly migrate: (raw: unknown) => unknown
 }
+
+type ErasedNodeDefinition = NodeDefinition<string, Record<string, unknown>>
+type ErasedMarkDefinition = MarkDefinition<string, Record<string, unknown>>
+type ErasedAttrsStruct = Schema.Struct<Schema.Struct.Fields>
+
+const eraseNodeDefinition = (def: unknown): ErasedNodeDefinition =>
+  def as unknown as ErasedNodeDefinition
+
+const eraseMarkDefinition = (def: unknown): ErasedMarkDefinition =>
+  def as unknown as ErasedMarkDefinition
 
 const buildMarkStruct = <Name extends string, Attrs extends Record<string, unknown>>(
   def: MarkDefinition<Name, Attrs>,
@@ -47,7 +91,7 @@ const buildTiptapNode = <Name extends string, Attrs extends Record<string, unkno
 ) => {
   const config: Record<string, unknown> = {
     name: def.name,
-    addAttributes: () => tiptapAttrsFromSchema(def.attrsSchema as never),
+    addAttributes: () => tiptapAttrsFromSchema(def.attrsSchema as unknown as ErasedAttrsStruct),
   }
   if (def.group !== undefined) config["group"] = def.group
   if (def.content !== undefined) config["content"] = def.content
@@ -82,7 +126,7 @@ const buildTiptapMark = <Name extends string, Attrs extends Record<string, unkno
 ) => {
   const config: Record<string, unknown> = {
     name: def.name,
-    addAttributes: () => tiptapAttrsFromSchema(def.attrsSchema as never),
+    addAttributes: () => tiptapAttrsFromSchema(def.attrsSchema as unknown as ErasedAttrsStruct),
   }
   if (def.inclusive !== undefined) config["inclusive"] = def.inclusive
   if (def.excludes !== undefined) config["excludes"] = def.excludes
@@ -113,25 +157,25 @@ const buildTiptapMark = <Name extends string, Attrs extends Record<string, unkno
  * `nodes` and `marks` are records of definitions keyed by their PM name.
  */
 export const defineEditorSchema = <
-  N extends Record<string, NodeDefinition<any, any>>,
-  M extends Record<string, MarkDefinition<any, any>>,
+  const N extends Record<string, unknown>,
+  const M extends Record<string, unknown>,
 >(spec: {
-  nodes: N
-  marks: M
+  nodes: N & NodeDefinitionMap<N>
+  marks: M & MarkDefinitionMap<M>
   migrate?: (raw: unknown) => unknown
-}): EditorSchema<N, M> => {
-  const markDefs = Object.values(spec.marks) as Array<MarkDefinition<any, any>>
-  const nodeDefs = Object.values(spec.nodes) as Array<NodeDefinition<any, any>>
+}): EditorSchema<N & NodeDefinitionMap<N>, M & MarkDefinitionMap<M>> => {
+  const markDefs = Object.values(spec.marks).map(eraseMarkDefinition)
+  const nodeDefs = Object.values(spec.nodes).map(eraseNodeDefinition)
 
   const markStructs = markDefs.map(buildMarkStruct)
-  const MarkUnion: Schema.Schema<MarkJSON> = (markStructs.length === 0
+  const MarkUnion = (markStructs.length === 0
     ? Schema.Struct({ type: Schema.String, attrs: Schema.optional(Schema.Unknown) })
     : markStructs.length === 1
       ? markStructs[0]!
-      : Schema.Union(...markStructs)) as unknown as Schema.Schema<MarkJSON>
+      : Schema.Union(...markStructs)) as unknown as Schema.Schema<MarkJSONFor<M>>
 
   // Recursive node union via Schema.suspend
-  const NodeUnion: Schema.Schema<NodeJSON> = Schema.suspend(() => {
+  const NodeUnion: Schema.Schema<NodeJSONFor<N, M>> = Schema.suspend(() => {
     const nodeStructs = nodeDefs.map((def) =>
       Schema.Struct({
         type: Schema.Literal(def.name),
@@ -143,7 +187,7 @@ export const defineEditorSchema = <
     )
     return (nodeStructs.length === 1
       ? nodeStructs[0]!
-      : Schema.Union(...nodeStructs)) as unknown as Schema.Schema<NodeJSON>
+      : Schema.Union(...nodeStructs)) as unknown as Schema.Schema<NodeJSONFor<N, M>>
   })
 
   // Document = the root node (must have type === "doc"); we surface NodeUnion.

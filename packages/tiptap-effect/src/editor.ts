@@ -1,23 +1,25 @@
 import { Atom, Registry } from "@effect-atom/atom";
-import { Editor as TiptapEditor } from "@tiptap/core";
+import { Editor as TiptapEditor, type JSONContent } from "@tiptap/core";
 import type { Extensions } from "@tiptap/core";
-import { Effect, Schema } from "effect";
+import type * as React from "react";
+import { Data, Effect, Schema } from "effect";
 import { CommandExecutor } from "./command-executor.js";
 import { withoutPmHistory } from "./internal/strip-pm-history.js";
 import { NodeViewStore } from "./react/node-view-store.js";
 import { editorRuntime } from "./runtime.js";
-import type { defineEditorSchema, EditorSchema, NodeJSON } from "./schema/define.js";
+import type { EditorSchema, NodeJSON } from "./schema/define.js";
 import { TransactionBus } from "./transaction-bus.js";
 import type { EditorId, TransactionSnapshot } from "./types.js";
 
-export class EditorInitError {
-  readonly _tag = "EditorInitError" as const;
-  constructor(readonly cause: unknown) {}
-}
+export class EditorInitError extends Data.TaggedError("EditorInitError")<{
+  readonly cause: unknown;
+}> {}
 
-type EditorSchemaSpec = Parameters<typeof defineEditorSchema>[0];
-type EditorSchemaNodes = EditorSchemaSpec["nodes"];
-type EditorSchemaMarks = EditorSchemaSpec["marks"];
+type EditorSchemaNodes = Record<string, unknown>;
+type EditorSchemaMarks = Record<string, unknown>;
+type NodeViewDefinition = {
+  readonly reactNodeView?: React.FC;
+};
 
 export interface EditorSpec<
   N extends EditorSchemaNodes = EditorSchemaNodes,
@@ -102,7 +104,7 @@ const decodeInitialContent = <
 ) =>
   Schema.decodeUnknown(spec.schema.Document)(
     spec.schema.migrate(spec.defaultContent),
-  ).pipe(Effect.mapError((cause) => new EditorInitError(cause)));
+  ).pipe(Effect.mapError((cause) => new EditorInitError({ cause })));
 
 const withReactNodeViews = <
   N extends EditorSchemaNodes,
@@ -114,7 +116,7 @@ const withReactNodeViews = <
 ): Extensions =>
   extensions.map((extension) => {
     const name = (extension as { readonly name: string }).name;
-    const definition = schema.nodes[name];
+    const definition = schema.nodes[name] as NodeViewDefinition | undefined;
     const Component = definition?.reactNodeView;
     if (!Component) return extension;
 
@@ -183,7 +185,7 @@ const createTiptapEditor = <
     element: null,
     extensions,
     editable: spec.editable ?? true,
-    content: content as never,
+    content: content as JSONContent,
     ...(spec.editorProps === undefined ? {} : { editorProps: spec.editorProps }),
   });
 
@@ -202,9 +204,9 @@ const installTransactionSubscription = (
       );
     };
 
-    editor.on("transaction", handler as never);
+    editor.on("transaction", handler);
     yield* Effect.addFinalizer(() =>
-      Effect.sync(() => editor.off("transaction", handler as never)),
+      Effect.sync(() => editor.off("transaction", handler)),
     );
   });
 

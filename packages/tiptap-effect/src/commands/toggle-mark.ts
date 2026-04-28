@@ -1,6 +1,19 @@
 import { Schema } from "effect"
 import { defineEditorCommand } from "../command.js"
 
+type NamedMark = { readonly type: { readonly name: string } }
+type ToggleMarkState = {
+  readonly schema: { readonly marks: Record<string, unknown> }
+  readonly selection: {
+    readonly from: number
+    readonly to: number
+    readonly empty: boolean
+    readonly $from: { readonly marks?: () => ReadonlyArray<NamedMark> }
+  }
+  readonly doc: { readonly rangeHasMark: (from: number, to: number, mark: unknown) => boolean }
+  readonly storedMarks?: ReadonlyArray<NamedMark> | null
+}
+
 /**
  * Toggle a mark by name. Captures the previous active state so undo restores
  * it deterministically (re-running toggle if the state diverged).
@@ -18,20 +31,15 @@ export const ToggleMarkCommand = (markName: string) =>
       to: Schema.Number,
     }),
     capturesSelection: true,
-    apply: (chain, _input) => chain.focus().toggleMark(markName),
+    apply: (chain, _input) => chain.toggleMark(markName),
     reverseSetup: (state, _input) => {
-      const s = state as {
-        schema: { marks: Record<string, unknown> }
-        selection: { from: number; to: number; empty: boolean; $from: any }
-        doc: { rangeHasMark: (a: number, b: number, m: any) => boolean }
-        storedMarks?: ReadonlyArray<{ type: { name: string } }> | null
-      }
+      const s = state as ToggleMarkState
       const markType = s.schema.marks[markName]
       const wasActive = !markType
         ? false
         : s.selection.empty
           ? (s.storedMarks ?? s.selection.$from?.marks?.() ?? []).some(
-              (m: { type: { name: string } }) => m.type.name === markName,
+              (m) => m.type.name === markName,
             )
           : s.doc.rangeHasMark(s.selection.from, s.selection.to, markType)
       return {
@@ -45,6 +53,6 @@ export const ToggleMarkCommand = (markName: string) =>
       // state. `setMark` / `unsetMark` is more robust than relying on
       // `toggleMark` to flip cleanly.
       wasActive
-        ? chain.focus().setTextSelection({ from, to }).setMark(markName)
-        : chain.focus().setTextSelection({ from, to }).unsetMark(markName),
+        ? chain.setTextSelection({ from, to }).setMark(markName)
+        : chain.setTextSelection({ from, to }).unsetMark(markName),
   })

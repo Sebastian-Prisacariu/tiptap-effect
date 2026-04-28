@@ -1,16 +1,22 @@
+import { AllSelection, NodeSelection, type EditorState, type Selection } from "@tiptap/pm/state"
 import type { SelectionInfo } from "../schema/selection.js"
 
 /**
  * Project a ProseMirror EditorState's selection into the public, Schema-typed
  * SelectionInfo. Kept internal so PM types don't leak into consumers.
  */
-export const projectSelection = (state: unknown): SelectionInfo => {
-  const sel = (state as { selection: any }).selection
+type PublicSelection = Selection & {
+  readonly head?: number
+  readonly empty: boolean
+}
+
+export const projectSelection = (state: EditorState | unknown): SelectionInfo => {
+  const sel = (state as EditorState).selection as PublicSelection
   const ctorName = sel.constructor?.name
-  if (ctorName === "AllSelection") {
+  if (sel instanceof AllSelection) {
     return { kind: "all", from: sel.from, to: sel.to }
   }
-  if (ctorName === "NodeSelection") {
+  if (sel instanceof NodeSelection) {
     return {
       kind: "node",
       pos: sel.from,
@@ -24,7 +30,7 @@ export const projectSelection = (state: unknown): SelectionInfo => {
     kind: "text",
     from: sel.from,
     to: sel.to,
-    head: sel.head,
+    head: sel.head ?? sel.to,
     empty: sel.empty,
   }
 }

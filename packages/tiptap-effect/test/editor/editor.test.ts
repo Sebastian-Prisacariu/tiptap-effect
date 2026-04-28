@@ -1,4 +1,5 @@
 import { Registry } from "@effect-atom/atom"
+import type { Extensions } from "@tiptap/core"
 import { Effect, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { makeEditorAtom } from "../../src/editor"
@@ -200,13 +201,13 @@ describe("withoutPmHistory", () => {
       { name: "history" },
       { name: "undoRedo" },
       { name: "bold" },
-    ] as never
+    ] as unknown as Extensions
     const result = withoutPmHistory(ext)
-    expect(result.map((e: any) => e.name)).toEqual(["paragraph", "bold"])
+    expect(result.map((e) => e.name)).toEqual(["paragraph", "bold"])
   })
 
   it("throws when strict and history is present", () => {
-    const ext = [{ name: "history" }] as never
+    const ext = [{ name: "history" }] as unknown as Extensions
     expect(() => withoutPmHistory(ext, { strict: true })).toThrow(/not allowed/)
   })
 })

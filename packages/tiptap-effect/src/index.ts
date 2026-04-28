@@ -43,8 +43,12 @@ export {
   defineEditorCommand,
   Reverse,
   NotReversibleError,
+  CommandApplicationError,
+  CommandValidationError,
   type Command,
   type EditorCommand,
+  type EditorRunnableCommand,
+  type RunnableCommand,
   type ReverseKind,
   type ConcurrencyPolicy,
 } from "./command.js"

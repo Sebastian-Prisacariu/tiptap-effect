@@ -5,8 +5,8 @@ import type { EditorId } from "../types.js"
 import type { Result } from "@effect-atom/atom"
 
 export interface ScopedEditorContextValue<
-  N extends Record<string, any> = any,
-  M extends Record<string, any> = any,
+  N extends Record<string, unknown> = Record<string, unknown>,
+  M extends Record<string, unknown> = Record<string, unknown>,
 > {
   readonly id: EditorId
   readonly spec: EditorSpec<N, M>
@@ -27,7 +27,7 @@ export const ScopedEditorContext =
  */
 export const EditorScope: React.FC<{
   id: EditorId
-  spec: EditorSpec<any, any>
+  spec: EditorSpec<Record<string, unknown>, Record<string, unknown>>
   children: React.ReactNode
 }> = ({ id, spec, children }) => {
   // Memoise the atom by id. Spec changes on the same id do NOT recreate the

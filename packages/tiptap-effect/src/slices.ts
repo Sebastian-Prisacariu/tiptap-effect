@@ -25,6 +25,19 @@ const unwrapSnap = (
   r: Result.Result<TransactionSnapshot, never>,
 ): TransactionSnapshot | null => (Result.isSuccess(r) ? r.value : null)
 
+type NamedMark = { readonly type: { readonly name: string } }
+type MarkSelectionState = {
+  readonly schema: { readonly marks: Record<string, unknown> }
+  readonly selection: {
+    readonly from: number
+    readonly to: number
+    readonly empty: boolean
+    readonly $from: { readonly marks?: () => ReadonlyArray<NamedMark> }
+  }
+  readonly doc: { readonly rangeHasMark: (from: number, to: number, mark: unknown) => boolean }
+  readonly storedMarks?: ReadonlyArray<NamedMark> | null
+}
+
 /**
  * Selection slice atom. Reads from the latest transaction snapshot's state.
  * Returns `null` until the first transaction emits.
@@ -43,12 +56,7 @@ export const isActiveAtom = (editorId: EditorId, markName: string) =>
   Atom.map(transactionBusAtom(editorId), (r) => {
     const snap = unwrapSnap(r)
     if (!snap) return false
-    const state = snap.stateAfter as {
-      schema: { marks: Record<string, unknown> }
-      selection: { from: number; to: number; empty: boolean; $from: any }
-      doc: { rangeHasMark: (a: number, b: number, m: any) => boolean }
-      storedMarks?: ReadonlyArray<{ type: { name: string } }> | null
-    }
+    const state = snap.stateAfter as MarkSelectionState
     const markType = state.schema.marks[markName]
     if (!markType) return false
     if (state.selection.empty) {
@@ -56,7 +64,7 @@ export const isActiveAtom = (editorId: EditorId, markName: string) =>
       if (stored) return stored.some((m) => m.type.name === markName)
       const $from = state.selection.$from
       return ($from?.marks?.() ?? []).some(
-        (m: { type: { name: string } }) => m.type.name === markName,
+        (m) => m.type.name === markName,
       )
     }
     return state.doc.rangeHasMark(state.selection.from, state.selection.to, markType)

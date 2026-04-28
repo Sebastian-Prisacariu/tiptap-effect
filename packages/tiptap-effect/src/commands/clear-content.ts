@@ -1,3 +1,4 @@
+import type { JSONContent } from "@tiptap/core"
 import { Schema } from "effect"
 import { defineEditorCommand } from "../command.js"
 
@@ -16,5 +17,5 @@ export const ClearContentCommand = defineEditorCommand({
     return { previousContent: s.doc.toJSON() }
   },
   applyReverse: (chain, _input, { previousContent }) =>
-    chain.setContent(previousContent as never),
+    chain.setContent(previousContent as JSONContent),
 })

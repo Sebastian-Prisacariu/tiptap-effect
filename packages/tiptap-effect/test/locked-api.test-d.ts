@@ -13,6 +13,8 @@ import { Effect, Schema } from "effect"
 import { defineCommand, Reverse, Sequence, useRawEditor } from "../src"
 import type {
   Command,
+  CommandApplicationError,
+  CurrentEditor,
   EditorCommand,
   ReverseKind,
   useDispatch,
@@ -34,8 +36,8 @@ void _raw_ok
 type DispatchReturn = ReturnType<typeof useDispatch>
 type HistoryReturn = ReturnType<typeof useHistory>
 
-type _NoEditorOnDispatchReturn = DispatchReturn extends { editor: any } ? never : "ok"
-type _NoEditorOnHistoryReturn = HistoryReturn extends { editor: any } ? never : "ok"
+type _NoEditorOnDispatchReturn = DispatchReturn extends { editor: unknown } ? never : "ok"
+type _NoEditorOnHistoryReturn = HistoryReturn extends { editor: unknown } ? never : "ok"
 const _check1: _NoEditorOnDispatchReturn = "ok"
 const _check2: _NoEditorOnHistoryReturn = "ok"
 void _check1
@@ -55,7 +57,13 @@ const _check3: _KindMatches = "ok"
 void _check3
 
 // 5) Command and EditorCommand parity — every EditorCommand is a Command
-type _EditorIsCommand = EditorCommand<"x", void, {}> extends Command<"x", void, {}, never, any>
+type _EditorIsCommand = EditorCommand<"x", void, {}> extends Command<
+  "x",
+  void,
+  {},
+  CommandApplicationError,
+  CurrentEditor
+>
   ? "ok"
   : "fail"
 const _check4: _EditorIsCommand = "ok"

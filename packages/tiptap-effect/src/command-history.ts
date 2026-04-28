@@ -1,20 +1,28 @@
+import type { Editor as TiptapEditor } from "@tiptap/core"
 import { Effect, type Stream, SubscriptionRef } from "effect"
-import type { Command, ReverseKind } from "./command.js"
+import type { CoalescePair, ReverseKind } from "./command.js"
 import type { SelectionInfo } from "./schema/selection.js"
 
 /**
- * A record kept in the live undo stack.
- * `output` is the result of `forward`, used by `reverse` to restore state.
+ * A record kept in the live undo/redo stacks.
+ *
+ * `forwardEffect` re-runs the command's forward for redo.
+ * `reverseEffect` undoes the command; it receives the *current* stored
+ * `output` so that redo-then-undo always operates on the freshest output
+ * rather than a stale closure value.
  */
-export interface CommandRecord<Op extends string = string, In = unknown, Out = unknown> {
-  readonly op: Op
-  readonly cmd: Command<Op, In, Out, any, any>
-  readonly input: In
-  readonly output: Out
+export interface CommandRecord {
+  readonly op: string
+  readonly input: unknown
+  readonly output: unknown
   readonly at: number
+  readonly forwardEffect: (editor: TiptapEditor) => Effect.Effect<unknown, unknown>
+  readonly reverseEffect:
+    | ReverseKind
+    | ((editor: TiptapEditor, output: unknown) => Effect.Effect<void, unknown>)
   /**
-   * SelectionInfo captured at dispatch when `cmd.capturesSelection === true`.
-   * Restored by the executor before running `reverse`.
+   * SelectionInfo captured at dispatch when `capturesSelection === true`.
+   * Restored by the executor before running `reverseEffect`.
    */
   readonly selection?: SelectionInfo | null
   /**
@@ -23,6 +31,16 @@ export interface CommandRecord<Op extends string = string, In = unknown, Out = u
    * "insert-text:char") and don't drift as merged inputs grow.
    */
   readonly coalesceKey?: string
+  /**
+   * Merge `prev` and `next` CoalescePairs into a new record. Returns `null`
+   * to opt out of merging (e.g. non-adjacent inserts). The returned record
+   * preserves `prev`'s `selection` and `coalesceKey` so the original
+   * user-action category drives future merges.
+   */
+  readonly coalesce?: (
+    prev: CoalescePair<unknown, unknown>,
+    next: CoalescePair<unknown, unknown>,
+  ) => CommandRecord | null
 }
 
 const COALESCE_WINDOW_MS = 500
@@ -32,9 +50,9 @@ const COALESCE_WINDOW_MS = 500
  *
  * - `push` clears the future stack (branching).
  * - `pushCoalesced` merges into the previous past entry when the previous
- *   entry has the same `op` + `coalesceKey(input)` and was pushed within
- *   `COALESCE_WINDOW_MS`. The merged record uses the new `at` timestamp so
- *   the window rolls forward with each subsequent dispatch.
+ *   entry has the same `op` + `coalesceKey` and was pushed within
+ *   `COALESCE_WINDOW_MS`. The merged record is produced by the record's own
+ *   `coalesce` callback, which preserves the original selection/key.
  * - Any `popLast` (i.e. an undo) terminates the coalesce window because the
  *   prior entry is no longer at the tail of the past stack.
  */
@@ -57,51 +75,28 @@ export class CommandHistory extends Effect.Service<CommandHistory>()(
           Effect.zipRight(SubscriptionRef.set(future, [])),
         )
 
-      /**
-       * Coalescing push: if the previous past entry has the same op + same
-       * stored `coalesceKey` and was pushed within `COALESCE_WINDOW_MS`,
-       * delegate to `cmd.coalesce(prev, next)` to fold the new record into the
-       * prior one. The coalesce function returns `null` to opt this specific
-       * pair out of merging (e.g. inserts at non-adjacent positions). The
-       * merged record keeps the *prev* coalesceKey so the original user-action
-       * category — not the accumulated state — drives subsequent merges.
-       */
       const pushCoalesced = (record: CommandRecord) =>
         SubscriptionRef.update(past, (arr) => {
           const prev = arr.length > 0 ? arr[arr.length - 1]! : null
-          const cmd = record.cmd
           const eligible =
             !!prev &&
-            !!cmd.coalesce &&
+            !!record.coalesce &&
             prev.op === record.op &&
             prev.coalesceKey !== undefined &&
             record.coalesceKey !== undefined &&
             prev.coalesceKey === record.coalesceKey &&
             record.at - prev.at <= COALESCE_WINDOW_MS
 
-          let next: ReadonlyArray<CommandRecord>
           if (eligible) {
-            const merged = cmd.coalesce!(
+            const merged = record.coalesce!(
               { input: prev!.input, output: prev!.output },
               { input: record.input, output: record.output },
             )
-            if (merged === null) {
-              next = [...arr, record]
-            } else {
-              const mergedRecord: CommandRecord = {
-                op: prev!.op,
-                cmd: prev!.cmd,
-                input: merged.input,
-                output: merged.output,
-                at: record.at,
-                selection: prev!.selection,
-                coalesceKey: prev!.coalesceKey,
-              }
-              next = [...arr.slice(0, -1), mergedRecord]
+            if (merged !== null) {
+              return [...arr.slice(0, -1), merged]
             }
-          } else {
-            next = [...arr, record]
           }
+          const next = [...arr, record]
           return next.length > maxSize ? next.slice(next.length - maxSize) : next
         }).pipe(Effect.zipRight(SubscriptionRef.set(future, [])))
 
@@ -130,8 +125,7 @@ export class CommandHistory extends Effect.Service<CommandHistory>()(
         )
 
       const pastChanges: Stream.Stream<ReadonlyArray<CommandRecord>> = past.changes
-      const futureChanges: Stream.Stream<ReadonlyArray<CommandRecord>> =
-        future.changes
+      const futureChanges: Stream.Stream<ReadonlyArray<CommandRecord>> = future.changes
 
       return {
         push,
@@ -150,11 +144,20 @@ export class CommandHistory extends Effect.Service<CommandHistory>()(
 ) {}
 
 /**
- * Identifier for the `reverse` kind of a Command, useful for runtime branching.
+ * Classify the `reverseEffect` of a `CommandRecord` at runtime.
  */
 export const reverseKind = (
-  reverse: Command<string, any, any, any, any>["reverse"],
+  reverseEffect: CommandRecord["reverseEffect"],
 ): "function" | ReverseKind => {
-  if (typeof reverse === "function") return "function"
-  return reverse
+  if (typeof reverseEffect === "function") return "function"
+  return reverseEffect
 }
+
+/**
+ * Narrow `reverseEffect` to the callable form, or return `null` if it is a
+ * `ReverseKind` sentinel. Eliminates all casts at undo call-sites.
+ */
+export const getReverseFn = (
+  reverseEffect: CommandRecord["reverseEffect"],
+): ((editor: TiptapEditor, output: unknown) => Effect.Effect<void, unknown>) | null =>
+  typeof reverseEffect === "function" ? reverseEffect : null

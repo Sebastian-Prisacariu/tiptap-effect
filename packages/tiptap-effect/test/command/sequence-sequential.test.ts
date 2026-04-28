@@ -1,13 +1,12 @@
-import { Effect, Layer, ManagedRuntime, Schema } from "effect"
+import { Data, Effect, Layer, ManagedRuntime, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { defineCommand, Reverse } from "../../src/command"
 import { CommandExecutor } from "../../src/command-executor"
 import { PartialFailure, Sequence } from "../../src/command-sequence"
 
-class StepError {
-  readonly _tag = "StepError" as const
-  constructor(readonly at: number) {}
-}
+class StepError extends Data.TaggedError("StepError")<{
+  readonly at: number
+}> {}
 
 let runtime: ManagedRuntime.ManagedRuntime<CommandExecutor, never>
 
@@ -86,7 +85,7 @@ describe("Sequence.sequential", () => {
       description: () => "B fails",
       inputSchema: Schema.Void,
       outputSchema: Schema.Literal("B-out"),
-      forward: () => Effect.fail(new StepError(1)),
+      forward: () => Effect.fail(new StepError({ at: 1 })),
       reverse: () => Effect.sync(() => {
         log.push("b-rev")
       }),

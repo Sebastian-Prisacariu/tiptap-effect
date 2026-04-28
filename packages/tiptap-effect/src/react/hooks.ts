@@ -1,10 +1,15 @@
 import { Result, useAtomValue, RegistryContext } from "@effect-atom/atom-react"
 import type { Atom, Registry } from "@effect-atom/atom"
 import type { Editor as TiptapEditor } from "@tiptap/core"
-import { Effect, Stream } from "effect"
+import { Data, Effect, Stream } from "effect"
 import * as React from "react"
-import type { Command } from "../command.js"
+import type {
+  CommandValidationError,
+  EditorRunnableCommand,
+  NotReversibleError,
+} from "../command.js"
 import {
+  CommandBusyError,
   CommandExecutor,
   type CommandFailed,
 } from "../command-executor.js"
@@ -14,6 +19,17 @@ import { commandPendingAtom } from "../pending-atoms.js"
 import { editorRuntime } from "../runtime.js"
 import { useEditorScope } from "./EditorScope.js"
 import type { EditorId } from "../types.js"
+
+export class DispatchNotReadyError extends Data.TaggedError("DispatchNotReadyError")<{
+  readonly message: string
+}> {}
+
+type DispatchError<Err> =
+  | Err
+  | CommandValidationError
+  | CommandBusyError
+  | NotReversibleError
+  | DispatchNotReadyError
 
 /**
  * Read a slice atom (e.g. `selectionAtom`, `isActiveAtom("bold")`).
@@ -117,7 +133,7 @@ const runOneShotResult = <A, E>(
  * Throws if called before the editor has fully constructed (initial Result).
  */
 export const useDispatch = (): (<Op extends string, In, Out, Err>(
-  cmd: Command<Op, In, Out, Err, any>,
+  cmd: EditorRunnableCommand<Op, In, Out, Err>,
   input: In,
 ) => Promise<Out>) => {
   const { atom } = useEditorScope()
@@ -126,18 +142,20 @@ export const useDispatch = (): (<Op extends string, In, Out, Err>(
 
   return React.useCallback(
     <Op extends string, In, Out, Err>(
-      cmd: Command<Op, In, Out, Err, any>,
+      cmd: EditorRunnableCommand<Op, In, Out, Err>,
       input: In,
     ): Promise<Out> => {
       if (!Result.isSuccess(result)) {
-        return Promise.reject(new Error("tiptap-effect: editor not ready"))
+        return Promise.reject(
+          new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
+        )
       }
       const editor = result.value._internal.editor
       const effect = Effect.gen(function* () {
         const exec = yield* CommandExecutor
         return yield* exec.run(editor, cmd, input)
-      }) as unknown as Effect.Effect<Out, Err, CommandExecutor>
-      return runOneShotAtom<Out, Err>(registry, effect)
+      })
+      return runOneShotAtom<Out, DispatchError<Err>>(registry, effect)
     },
     [result, registry],
   )
@@ -151,21 +169,21 @@ export const useDispatch = (): (<Op extends string, In, Out, Err>(
  * need to provide a layer.
  */
 export const useDispatchEffect = (): (<Op extends string, In, Out, Err>(
-  cmd: Command<Op, In, Out, Err, any>,
+  cmd: EditorRunnableCommand<Op, In, Out, Err>,
   input: In,
-) => Effect.Effect<Out, Err>) => {
+) => Effect.Effect<Out, DispatchError<Err>>) => {
   const { atom } = useEditorScope()
   const result = useAtomValue(atom)
   const registry = useRegistry()
 
   return React.useCallback(
     <Op extends string, In, Out, Err>(
-      cmd: Command<Op, In, Out, Err, any>,
+      cmd: EditorRunnableCommand<Op, In, Out, Err>,
       input: In,
-    ): Effect.Effect<Out, Err> => {
+    ): Effect.Effect<Out, DispatchError<Err>> => {
       if (!Result.isSuccess(result)) {
         return Effect.fail(
-          new Error("tiptap-effect: editor not ready") as unknown as Err,
+          new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
         )
       }
       const editor = result.value._internal.editor
@@ -174,14 +192,14 @@ export const useDispatchEffect = (): (<Op extends string, In, Out, Err>(
       // matches the cmd's declared Err.
       return Effect.tryPromise({
         try: () =>
-          runOneShotAtom<Out, Err>(
+          runOneShotAtom<Out, DispatchError<Err>>(
             registry,
             Effect.gen(function* () {
               const exec = yield* CommandExecutor
               return yield* exec.run(editor, cmd, input)
-            }) as unknown as Effect.Effect<Out, Err, CommandExecutor>,
+            }),
           ),
-        catch: (cause) => cause as Err,
+        catch: (cause) => cause as DispatchError<Err>,
       })
     },
     [result, registry],
@@ -193,31 +211,33 @@ export const useDispatchEffect = (): (<Op extends string, In, Out, Err>(
  * you want to handle success/failure in a single branch without try/catch.
  */
 export const useDispatchPromise = (): (<Op extends string, In, Out, Err>(
-  cmd: Command<Op, In, Out, Err, any>,
+  cmd: EditorRunnableCommand<Op, In, Out, Err>,
   input: In,
-) => Promise<Result.Result<Out, Err>>) => {
+) => Promise<Result.Result<Out, DispatchError<Err>>>) => {
   const { atom } = useEditorScope()
   const result = useAtomValue(atom)
   const registry = useRegistry()
 
   return React.useCallback(
     async <Op extends string, In, Out, Err>(
-      cmd: Command<Op, In, Out, Err, any>,
+      cmd: EditorRunnableCommand<Op, In, Out, Err>,
       input: In,
-    ): Promise<Result.Result<Out, Err>> => {
+    ): Promise<Result.Result<Out, DispatchError<Err>>> => {
       if (!Result.isSuccess(result)) {
-        return Result.failure({
-          _tag: "Error",
-          error: new Error("tiptap-effect: editor not ready") as unknown as Err,
-        } as never) as Result.Result<Out, Err>
+        return await runOneShotResult<Out, DispatchError<Err>>(
+          registry,
+          Effect.fail(
+            new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
+          ),
+        )
       }
       const editor = result.value._internal.editor
-      return await runOneShotResult<Out, Err>(
+      return await runOneShotResult<Out, DispatchError<Err>>(
         registry,
         Effect.gen(function* () {
           const exec = yield* CommandExecutor
           return yield* exec.run(editor, cmd, input)
-        }) as unknown as Effect.Effect<Out, Err, CommandExecutor>,
+        }),
       )
     },
     [result, registry],

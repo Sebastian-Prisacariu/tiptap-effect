@@ -1,6 +1,25 @@
 import { Schema } from "effect"
 import { defineEditorCommand } from "../command.js"
 
+type LinkChain<Chain> = Chain & {
+  readonly setLink: (attrs: { readonly href: string }) => Chain
+  readonly unsetLink: () => Chain
+}
+
+type MarkAtSelection = {
+  readonly type: { readonly name: string }
+  readonly attrs: { readonly href?: string }
+}
+
+type LinkState = {
+  readonly selection: {
+    readonly from: number
+    readonly to: number
+    readonly $from: { readonly marks?: () => ReadonlyArray<MarkAtSelection> }
+  }
+  readonly schema: { readonly marks: { readonly link?: unknown } }
+}
+
 /**
  * Set or clear a link mark over the current selection. `href: null` removes
  * the link. Wraps `@tiptap/extension-link`'s `setLink` / `unsetLink` chain
@@ -24,25 +43,17 @@ export const SetLinkCommand = defineEditorCommand({
   }),
   capturesSelection: true,
   apply: (chain, { href }) => {
-    const c = chain.focus() as any
+    const c = chain.focus() as LinkChain<typeof chain>
     if (href === null) return c.unsetLink()
     return c.setLink({ href })
   },
   reverseSetup: (state, _input) => {
-    const s = state as {
-      selection: { from: number; to: number }
-      schema: { marks: Record<string, unknown> }
-      doc: { rangeHasMark?: any; nodeAt?: any }
-    }
+    const s = state as LinkState
     // Read the link mark's current attrs at the active range
-    const linkMarkType = (s.schema.marks as { link?: any }).link
+    const linkMarkType = s.schema.marks.link
     let previousHref: string | null = null
     if (linkMarkType) {
-      const $from = (state as any).selection.$from
-      const marks = ($from?.marks?.() ?? []) as ReadonlyArray<{
-        type: { name: string }
-        attrs: { href?: string }
-      }>
+      const marks = s.selection.$from.marks?.() ?? []
       const link = marks.find((m) => m.type.name === "link")
       previousHref = link?.attrs?.href ?? null
     }
@@ -53,7 +64,7 @@ export const SetLinkCommand = defineEditorCommand({
     }
   },
   applyReverse: (chain, _input, { previousHref, from, to }) => {
-    const c = chain.focus().setTextSelection({ from, to }) as any
+    const c = chain.focus().setTextSelection({ from, to }) as LinkChain<typeof chain>
     if (previousHref === null) return c.unsetLink()
     return c.setLink({ href: previousHref })
   },
