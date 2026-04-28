@@ -1,8 +1,8 @@
 import { Schema } from "effect"
 import { Mark as TiptapMarkExt, Node as TiptapNodeExt } from "@tiptap/core"
 import type { Extensions } from "@tiptap/core"
-import { tiptapAttrsFromSchema } from "./derive.js"
-import type { MarkDefinition, NodeDefinition } from "./node-definition.js"
+import { tiptapAttrsFromSchema } from "./derive"
+import type { MarkDefinition, NodeDefinition } from "./node-definition"
 
 /**
  * A node JSON shape, generic over the `type` literal and `attrs`.

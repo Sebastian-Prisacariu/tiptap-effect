@@ -2,8 +2,8 @@ export {
   EditorScope,
   useEditorScope,
   type ScopedEditorContextValue,
-} from "./EditorScope.js"
-export { TiptapView } from "./TiptapView.js"
+} from "./EditorScope"
+export { TiptapView } from "./TiptapView"
 export {
   useDispatch,
   useDispatchEffect,
@@ -14,6 +14,6 @@ export {
   useCommandPending,
   useCommandErrors,
   useRawEditor,
-} from "./hooks.js"
-export { NodeViewContext, useNodeViewProps } from "./NodeViewContext.js"
-export type { NodeViewEntry, NodeViewProps, NodeViewStore } from "./node-view-store.js"
+} from "./hooks"
+export { NodeViewContext, useNodeViewProps } from "./NodeViewContext"
+export type { NodeViewProps } from "./internal/node-view-store"

@@ -1,8 +1,8 @@
 import { Data, Effect, Layer, ManagedRuntime, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { defineCommand, Reverse } from "../../src/command"
-import { CommandExecutor } from "../../src/command-executor"
-import { PartialFailure, Sequence } from "../../src/command-sequence"
+import { defineCommand, Reverse } from "tiptap-effect/command"
+import { CommandExecutor } from "tiptap-effect/command"
+import { PartialFailure, Sequence } from "tiptap-effect/command"
 
 class StepError extends Data.TaggedError("StepError")<{
   readonly at: number

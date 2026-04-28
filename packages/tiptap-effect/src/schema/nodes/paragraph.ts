@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import type { NodeDefinition } from "../node-definition.js"
+import type { NodeDefinition } from "../node-definition"
 
 export const ParagraphNode: NodeDefinition<"paragraph", Record<string, never>> = {
   name: "paragraph",

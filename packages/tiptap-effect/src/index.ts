@@ -9,18 +9,18 @@ export {
   type EditorSchema,
   type NodeJSON,
   type MarkJSON,
-} from "./schema/define.js"
+} from "./schema/define"
 export {
   tiptapAttrsFromSchema,
   type TiptapAttributeSpec,
-} from "./schema/derive.js"
+} from "./schema/derive"
 export type {
   NodeDefinition,
   MarkDefinition,
-} from "./schema/node-definition.js"
-export { SelectionInfo } from "./schema/selection.js"
-export * as Nodes from "./schema/nodes/index.js"
-export * as Marks from "./schema/marks/index.js"
+} from "./schema/node-definition"
+export { SelectionInfo } from "./schema/selection"
+export * as Nodes from "./schema/nodes/index"
+export * as Marks from "./schema/marks/index"
 
 // Editor
 export {
@@ -28,14 +28,13 @@ export {
   EditorInitError,
   type EditorSpec,
   type EditorHandle,
-} from "./editor.js"
+} from "./editor"
 
 // Runtime + services
-export { editorRuntime, TiptapLayer } from "./runtime.js"
-export { TransactionBus } from "./transaction-bus.js"
+export { editorRuntime, TiptapLayer } from "./runtime"
 
 // Types
-export { EditorId, type TransactionSnapshot } from "./types.js"
+export { EditorId, type TransactionSnapshot } from "./types"
 
 // Command system
 export {
@@ -51,28 +50,25 @@ export {
   type RunnableCommand,
   type ReverseKind,
   type ConcurrencyPolicy,
-} from "./command.js"
-export { CurrentEditor } from "./current-editor.js"
-export {
+  CurrentEditor,
   CommandExecutor,
   CommandExecutorLive,
   CommandBusyError,
   type NotReversibleAttempt,
   type CommandFailed,
-} from "./command-executor.js"
-export {
   CommandHistory,
   type CommandRecord,
   reverseKind,
-} from "./command-history.js"
-export {
   Sequence,
   PartialFailure,
   SequenceFailure,
   sequenceRecordSchema,
   type SequenceRecord,
   type SequenceCommand,
-} from "./command-sequence.js"
+  undoableAtom,
+  redoableAtom,
+  commandPendingAtom,
+} from "./command"
 
 // Slice atoms
 export {
@@ -84,16 +80,13 @@ export {
   plainTextAtom,
   focusAtom,
   transactionBusAtom,
-} from "./slices.js"
-export { undoableAtom, redoableAtom } from "./history-atoms.js"
-export { dirtyAtom, lastSavedAtom } from "./dirty.js"
-export { commandPendingAtom } from "./pending-atoms.js"
+} from "./editor"
 
-// Dirty tracking service (consumed by MarkSavedCommand and dirtyAtom)
-export { DirtyTracker, DirtyTrackerLive } from "./dirty-tracker.js"
+// Dirty tracking atoms
+export { dirtyAtom, lastSavedAtom } from "./dirty"
 
 // Built-in commands
-export * as Commands from "./commands/index.js"
+export * as Commands from "./command/commands/index"
 
 // React layer
 export {
@@ -110,4 +103,4 @@ export {
   useCommandErrors,
   useRawEditor,
   type ScopedEditorContextValue,
-} from "./react/index.js"
+} from "./react/index"

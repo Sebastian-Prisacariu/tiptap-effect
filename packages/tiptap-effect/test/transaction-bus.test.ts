@@ -1,7 +1,7 @@
 import { Chunk, Effect, Stream } from "effect"
 import { describe, expect, it } from "vitest"
-import { TransactionBus } from "../src/transaction-bus"
-import { EditorId, type TransactionSnapshot } from "../src/types"
+import { TransactionBus } from "../src/runtime/internal/transaction-bus"
+import { EditorId, type TransactionSnapshot } from "tiptap-effect"
 
 const mkSnapshot = (id: EditorId, n: number): TransactionSnapshot => ({
   editorId: id,

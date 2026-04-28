@@ -1,11 +1,11 @@
-import { Registry } from "@effect-atom/atom"
+import { Registry, Result } from "@effect-atom/atom"
 import { RegistryContext } from "@effect-atom/atom-react"
 import { act, cleanup, render, waitFor } from "@testing-library/react"
 import { Effect, Schema } from "effect"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { defineCommand, Reverse } from "../../src/command"
-import type { CommandFailed } from "../../src/command-executor"
+import { defineCommand, Reverse } from "tiptap-effect/command"
+import type { CommandFailed } from "tiptap-effect/command"
 import {
   EditorScope,
   TiptapView,
@@ -13,11 +13,11 @@ import {
   useCommandPending,
   useDispatch,
   useRawEditor,
-} from "../../src/react"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark } from "../../src/schema/marks"
-import { DocNode, ParagraphNode, TextNode } from "../../src/schema/nodes"
-import { EditorId } from "../../src/types"
+} from "tiptap-effect/react"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark } from "tiptap-effect/schema"
+import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
@@ -110,7 +110,7 @@ describe("useCommandPending", () => {
     expect(exposed!.pending).toBe(false)
 
     // Kick off a slow dispatch (don't await — we want to observe pending=true)
-    let dispatchPromise: Promise<unknown> | null = null
+    let dispatchPromise: Promise<Result.Result<unknown, unknown>> | null = null
     await act(async () => {
       dispatchPromise = exposed!.dispatch(SlowOp, undefined)
       // Yield so the runtime starts the fiber and pendingOps updates
@@ -127,6 +127,81 @@ describe("useCommandPending", () => {
 
     // pending should now be false
     expect(exposed!.pending).toBe(false)
+  })
+
+  it("is scoped to the current EditorScope", async () => {
+    let exposedA: {
+      dispatch: ReturnType<typeof useDispatch>
+      pending: boolean
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+    let exposedB: {
+      pending: boolean
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+    const transitionsA: boolean[] = []
+    const transitionsB: boolean[] = []
+
+    const ProbeA: React.FC = () => {
+      const dispatch = useDispatch()
+      const pending = useCommandPending("test.slow.hook")
+      const editor = useRawEditor({ unsafe: true })
+      transitionsA.push(pending)
+      exposedA = { dispatch, pending, editor }
+      return null
+    }
+    const ProbeB: React.FC = () => {
+      const pending = useCommandPending("test.slow.hook")
+      const editor = useRawEditor({ unsafe: true })
+      transitionsB.push(pending)
+      exposedB = { pending, editor }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-pending-a")}
+          spec={{
+            id: EditorId("ed-pending-a"),
+            schema: lessonSchema,
+            defaultContent: validDoc,
+          }}
+        >
+          <TiptapView />
+          <ProbeA />
+        </EditorScope>
+        <EditorScope
+          id={EditorId("ed-pending-b")}
+          spec={{
+            id: EditorId("ed-pending-b"),
+            schema: lessonSchema,
+            defaultContent: validDoc,
+          }}
+        >
+          <TiptapView />
+          <ProbeB />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposedA?.editor).not.toBeNull()
+      expect(exposedB?.editor).not.toBeNull()
+    })
+
+    let dispatchPromise: Promise<Result.Result<unknown, unknown>> | null = null
+    await act(async () => {
+      dispatchPromise = exposedA!.dispatch(SlowOp, undefined)
+      await new Promise((r) => setTimeout(r, 10))
+    })
+
+    expect(transitionsA.includes(true)).toBe(true)
+    expect(transitionsB.includes(true)).toBe(false)
+
+    await act(async () => {
+      await dispatchPromise!
+    })
   })
 })
 
@@ -180,17 +255,88 @@ describe("useCommandErrors", () => {
     })
 
     // Dispatch a failing cmd; the executor should publish a CommandFailed event
+    let result: Result.Result<unknown, unknown> | null = null
     await act(async () => {
-      try {
-        await exposed!.dispatch(FailingCmd, undefined)
-      } catch {
-        // Expected — dispatch rejects on Failure
-      }
+      result = await exposed!.dispatch(FailingCmd, undefined)
+      expect(Result.isFailure(result)).toBe(true)
       // Yield to let the Stream.runForEach pipeline call the handler
       await new Promise((r) => setTimeout(r, 50))
     })
 
     expect(events.length).toBeGreaterThanOrEqual(1)
     expect(events[0]!.op).toBe("test.failing.hook")
+  })
+
+  it("is scoped to the current EditorScope", async () => {
+    const eventsA: CommandFailed[] = []
+    const eventsB: CommandFailed[] = []
+    let exposedA: {
+      dispatch: ReturnType<typeof useDispatch>
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+    let exposedB: {
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+
+    const ProbeA: React.FC = () => {
+      const dispatch = useDispatch()
+      const editor = useRawEditor({ unsafe: true })
+      useCommandErrors((event) => {
+        eventsA.push(event)
+      })
+      exposedA = { dispatch, editor }
+      return null
+    }
+    const ProbeB: React.FC = () => {
+      const editor = useRawEditor({ unsafe: true })
+      useCommandErrors((event) => {
+        eventsB.push(event)
+      })
+      exposedB = { editor }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-errors-a")}
+          spec={{
+            id: EditorId("ed-errors-a"),
+            schema: lessonSchema,
+            defaultContent: validDoc,
+          }}
+        >
+          <TiptapView />
+          <ProbeA />
+        </EditorScope>
+        <EditorScope
+          id={EditorId("ed-errors-b")}
+          spec={{
+            id: EditorId("ed-errors-b"),
+            schema: lessonSchema,
+            defaultContent: validDoc,
+          }}
+        >
+          <TiptapView />
+          <ProbeB />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposedA?.editor).not.toBeNull()
+      expect(exposedB?.editor).not.toBeNull()
+    })
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+      const result = await exposedA!.dispatch(FailingCmd, undefined)
+      expect(Result.isFailure(result)).toBe(true)
+      await new Promise((r) => setTimeout(r, 50))
+    })
+
+    expect(eventsA.length).toBeGreaterThanOrEqual(1)
+    expect(eventsA[0]!.op).toBe("test.failing.hook")
+    expect(eventsB).toHaveLength(0)
   })
 })

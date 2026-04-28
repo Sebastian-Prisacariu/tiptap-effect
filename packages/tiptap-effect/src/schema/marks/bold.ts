@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import type { MarkDefinition } from "../node-definition.js"
+import type { MarkDefinition } from "../node-definition"
 
 export const BoldMark: MarkDefinition<"bold", Record<string, never>> = {
   name: "bold",

@@ -3,11 +3,11 @@ import { RegistryContext } from "@effect-atom/atom-react"
 import { cleanup, render, waitFor } from "@testing-library/react"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { EditorScope, TiptapView, useRawEditor } from "../../src/react"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark } from "../../src/schema/marks"
-import { DocNode, ParagraphNode, TextNode } from "../../src/schema/nodes"
-import { EditorId } from "../../src/types"
+import { EditorScope, TiptapView, useRawEditor } from "tiptap-effect/react"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark } from "tiptap-effect/schema"
+import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },

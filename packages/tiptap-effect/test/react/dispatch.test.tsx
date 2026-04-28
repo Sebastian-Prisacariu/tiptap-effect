@@ -1,20 +1,20 @@
-import { Registry } from "@effect-atom/atom"
+import { Registry, Result } from "@effect-atom/atom"
 import { RegistryContext } from "@effect-atom/atom-react"
 import { act, cleanup, render, waitFor } from "@testing-library/react"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { ToggleMarkCommand } from "../../src/commands"
+import { ToggleMarkCommand } from "tiptap-effect/command/commands"
 import {
   EditorScope,
   TiptapView,
   useDispatch,
   useHistory,
   useRawEditor,
-} from "../../src/react"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark } from "../../src/schema/marks"
-import { DocNode, ParagraphNode, TextNode } from "../../src/schema/nodes"
-import { EditorId } from "../../src/types"
+} from "tiptap-effect/react"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark } from "tiptap-effect/schema"
+import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
@@ -85,28 +85,34 @@ describe("useDispatch + useHistory", () => {
     editor.commands.focus()
     editor.commands.setTextSelection({ from: 1, to: 4 })
 
-    // Dispatch ToggleBold
+    let dispatchResult: Result.Result<unknown, unknown> | null = null
     await act(async () => {
-      await exposed!.dispatch(ToggleBold, undefined)
+      dispatchResult = await exposed!.dispatch(ToggleBold, undefined)
     })
+    expect(dispatchResult).not.toBeNull()
+    expect(Result.isSuccess(dispatchResult!)).toBe(true)
     expect(editor.isActive("bold")).toBe(true)
 
-    // Undo
+    let undoResult: Result.Result<unknown, unknown> | null = null
     await act(async () => {
-      await exposed!.history.undo()
+      undoResult = await exposed!.history.undo()
     })
+    expect(undoResult).not.toBeNull()
+    expect(Result.isSuccess(undoResult!)).toBe(true)
     editor.commands.setTextSelection({ from: 1, to: 4 })
     expect(editor.isActive("bold")).toBe(false)
 
-    // Redo
+    let redoResult: Result.Result<unknown, unknown> | null = null
     await act(async () => {
-      await exposed!.history.redo()
+      redoResult = await exposed!.history.redo()
     })
+    expect(redoResult).not.toBeNull()
+    expect(Result.isSuccess(redoResult!)).toBe(true)
     editor.commands.setTextSelection({ from: 1, to: 4 })
     expect(editor.isActive("bold")).toBe(true)
   })
 
-  it("dispatch rejects before the editor is ready", async () => {
+  it("dispatch returns Failure before the editor is ready", async () => {
     // This test is a bit awkward — by the time the React tree commits,
     // the atom is already resolved. We verify the runtime path of the
     // guard by manually calling dispatch right after render before any
@@ -133,7 +139,93 @@ describe("useDispatch + useHistory", () => {
     await waitFor(() => {
       expect(exposed).not.toBeNull()
     })
-    // Schema decode failure means the result is Failure, not Success — dispatch should reject
-    await expect(exposed!(ToggleBold, undefined)).rejects.toBeDefined()
+    const result = await exposed!(ToggleBold, undefined)
+    expect(Result.isFailure(result)).toBe(true)
+  })
+
+  it("history is scoped to the current EditorScope", async () => {
+    let exposedA: {
+      dispatch: ReturnType<typeof useDispatch>
+      history: ReturnType<typeof useHistory>
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+    let exposedB: {
+      history: ReturnType<typeof useHistory>
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+
+    const ProbeA: React.FC = () => {
+      exposedA = {
+        dispatch: useDispatch(),
+        history: useHistory(),
+        editor: useRawEditor({ unsafe: true }),
+      }
+      return null
+    }
+    const ProbeB: React.FC = () => {
+      exposedB = {
+        history: useHistory(),
+        editor: useRawEditor({ unsafe: true }),
+      }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-history-a")}
+          spec={{
+            id: EditorId("ed-history-a"),
+            schema: lessonSchema,
+            defaultContent: validDoc,
+          }}
+        >
+          <TiptapView />
+          <ProbeA />
+        </EditorScope>
+        <EditorScope
+          id={EditorId("ed-history-b")}
+          spec={{
+            id: EditorId("ed-history-b"),
+            schema: lessonSchema,
+            defaultContent: validDoc,
+          }}
+        >
+          <TiptapView />
+          <ProbeB />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposedA?.editor).not.toBeNull()
+      expect(exposedB?.editor).not.toBeNull()
+    })
+
+    const editorA = exposedA!.editor!
+    editorA.commands.focus()
+    editorA.commands.setTextSelection({ from: 1, to: 4 })
+
+    await act(async () => {
+      const result = await exposedA!.dispatch(ToggleBold, undefined)
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    expect(editorA.isActive("bold")).toBe(true)
+
+    await act(async () => {
+      const result = await exposedB!.history.undo()
+      expect(Result.isSuccess(result)).toBe(true)
+      if (Result.isSuccess(result)) expect(result.value).toBeNull()
+    })
+    editorA.commands.setTextSelection({ from: 1, to: 4 })
+    expect(editorA.isActive("bold")).toBe(true)
+
+    await act(async () => {
+      const result = await exposedA!.history.undo()
+      expect(Result.isSuccess(result)).toBe(true)
+      if (Result.isSuccess(result)) expect(result.value).not.toBeNull()
+    })
+    editorA.commands.setTextSelection({ from: 1, to: 4 })
+    expect(editorA.isActive("bold")).toBe(false)
   })
 })

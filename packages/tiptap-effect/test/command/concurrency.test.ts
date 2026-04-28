@@ -1,19 +1,19 @@
 import { Registry, Result } from "@effect-atom/atom"
 import { Chunk, Effect, PubSub, Queue, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { defineCommand, Reverse } from "../../src/command"
+import { defineCommand, Reverse } from "tiptap-effect/command"
 import {
   CommandBusyError,
   CommandExecutor,
   type CommandFailed,
-} from "../../src/command-executor"
-import { makeEditorAtom } from "../../src/editor"
-import { commandPendingAtom } from "../../src/pending-atoms"
-import { editorRuntime } from "../../src/runtime"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark } from "../../src/schema/marks"
-import { DocNode, ParagraphNode, TextNode } from "../../src/schema/nodes"
-import { EditorId } from "../../src/types"
+} from "tiptap-effect/command"
+import { makeEditorAtom } from "tiptap-effect/editor"
+import { commandPendingAtom } from "tiptap-effect/command"
+import { editorRuntime } from "tiptap-effect/runtime"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark } from "tiptap-effect/schema"
+import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "../helpers/atom"
 
 const lessonSchema = defineEditorSchema({
@@ -81,7 +81,7 @@ const slowCmd = (op: string, delayMs: number, policy?: "block-while-pending" | "
   })
 
 describe("CommandExecutor — concurrency policies", () => {
-  it("default block-while-pending: a same-op overlap fails with CommandBusyError; commandPendingAtom('op') flips true → false", async () => {
+  it("default block-while-pending: a same-op overlap fails with CommandBusyError; commandPendingAtom(id, op) flips true → false", async () => {
     const id = EditorId("ed-conc-block-1")
     const editorAtom = makeEditorAtom({ id, schema: lessonSchema, defaultContent: validDoc })
     const _keep = registry.subscribe(editorAtom, () => {})
@@ -90,7 +90,7 @@ describe("CommandExecutor — concurrency policies", () => {
 
     const SlowOp = slowCmd("test.slow.block", 50) // default block-while-pending
 
-    const pending = commandPendingAtom("test.slow.block")
+    const pending = commandPendingAtom(id, "test.slow.block")
     const _keepPending = registry.subscribe(pending, () => {})
 
     // Kick off the first dispatch (background)

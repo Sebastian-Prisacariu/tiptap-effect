@@ -1,5 +1,5 @@
 import * as React from "react"
-import type { NodeViewProps } from "./node-view-store.js"
+import type { NodeViewProps } from "./internal/node-view-store"
 
 export const NodeViewContext = React.createContext<NodeViewProps | null>(null)
 

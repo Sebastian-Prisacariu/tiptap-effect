@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import type { NodeDefinition } from "../node-definition.js"
+import type { NodeDefinition } from "../node-definition"
 
 const HeadingAttrs = Schema.Struct({
   level: Schema.Literal(1, 2, 3, 4, 5, 6).pipe(

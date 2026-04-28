@@ -1,14 +1,14 @@
 import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { defineEditorCommand } from "../../src/command"
-import { CommandExecutor } from "../../src/command-executor"
-import { CommandHistory } from "../../src/command-history"
-import { makeEditorAtom } from "../../src/editor"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark } from "../../src/schema/marks"
-import { DocNode, ParagraphNode, TextNode } from "../../src/schema/nodes"
-import { EditorId } from "../../src/types"
+import { defineEditorCommand } from "tiptap-effect/command"
+import { CommandExecutor } from "tiptap-effect/command"
+import { CommandHistory } from "tiptap-effect/command"
+import { makeEditorAtom } from "tiptap-effect/editor"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark } from "tiptap-effect/schema"
+import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "../helpers/atom"
 
 const lessonSchema = defineEditorSchema({
@@ -103,7 +103,7 @@ describe("CommandExecutor — capturesSelection", () => {
     const past = await runtime.runPromise(
       Effect.gen(function* () {
         const hist = yield* CommandHistory
-        return yield* hist.list()
+        return yield* hist.list(id)
       }),
     )
     // After undo the past stack is empty; let's redo the run to inspect the
@@ -117,7 +117,7 @@ describe("CommandExecutor — capturesSelection", () => {
     const past2 = await runtime.runPromise(
       Effect.gen(function* () {
         const hist = yield* CommandHistory
-        return yield* hist.list()
+        return yield* hist.list(id)
       }),
     )
     expect(past2.length).toBeGreaterThan(0)

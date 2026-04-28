@@ -1,14 +1,14 @@
 import { Registry } from "@effect-atom/atom"
 import { Chunk, Effect, Layer, ManagedRuntime, PubSub, Queue, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { type NotReversibleError, Reverse } from "../../src/command"
-import { CommandExecutor, type NotReversibleAttempt } from "../../src/command-executor"
-import { CommandHistory } from "../../src/command-history"
-import { makeEditorAtom } from "../../src/editor"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark } from "../../src/schema/marks"
-import { DocNode, ParagraphNode, TextNode } from "../../src/schema/nodes"
-import { EditorId } from "../../src/types"
+import { type NotReversibleError, Reverse } from "tiptap-effect/command"
+import { CommandExecutor, type NotReversibleAttempt } from "tiptap-effect/command"
+import { CommandHistory } from "tiptap-effect/command"
+import { makeEditorAtom } from "tiptap-effect/editor"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark } from "tiptap-effect/schema"
+import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "../helpers/atom"
 
 const lessonSchema = defineEditorSchema({
@@ -97,7 +97,7 @@ describe("CommandExecutor — A3 toggle", () => {
     const past = await runtime.runPromise(
       Effect.gen(function* () {
         const hist = yield* CommandHistory
-        return yield* hist.list()
+        return yield* hist.list(id)
       }),
     )
     expect(past.length).toBe(0)

@@ -1,14 +1,14 @@
 import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { CommandExecutor } from "../../src/command-executor"
-import { CommandHistory } from "../../src/command-history"
-import { InsertTextCommand } from "../../src/commands"
-import { makeEditorAtom } from "../../src/editor"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark } from "../../src/schema/marks"
-import { DocNode, ParagraphNode, TextNode } from "../../src/schema/nodes"
-import { EditorId } from "../../src/types"
+import { CommandExecutor } from "tiptap-effect/command"
+import { CommandHistory } from "tiptap-effect/command"
+import { InsertTextCommand } from "tiptap-effect/command/commands"
+import { makeEditorAtom } from "tiptap-effect/editor"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark } from "tiptap-effect/schema"
+import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "../helpers/atom"
 
 const lessonSchema = defineEditorSchema({
@@ -87,7 +87,7 @@ describe("CommandExecutor — round-trip property test", () => {
       const past = await runtime.runPromise(
         Effect.gen(function* () {
           const hist = yield* CommandHistory
-          return yield* hist.list()
+          return yield* hist.list(id)
         }),
       )
       expect(past.length).toBeGreaterThan(0)
@@ -109,7 +109,7 @@ describe("CommandExecutor — round-trip property test", () => {
       const finalPast = await runtime.runPromise(
         Effect.gen(function* () {
           const hist = yield* CommandHistory
-          return yield* hist.list()
+          return yield* hist.list(id)
         }),
       )
       expect(finalPast.length).toBe(0)

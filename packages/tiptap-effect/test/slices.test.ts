@@ -1,6 +1,6 @@
 import { Registry } from "@effect-atom/atom"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { makeEditorAtom } from "../src/editor"
+import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "../src/schema/define"
 import { BoldMark } from "../src/schema/marks"
 import {
@@ -9,8 +9,8 @@ import {
   ParagraphNode,
   TextNode,
 } from "../src/schema/nodes"
-import { isActiveAtom, selectionAtom } from "../src/slices"
-import { EditorId } from "../src/types"
+import { isActiveAtom, selectionAtom } from "tiptap-effect/editor"
+import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "./helpers/atom"
 
 const lessonSchema = defineEditorSchema({

@@ -1,19 +1,18 @@
 import { Registry } from "@effect-atom/atom"
 import type { Extensions } from "@tiptap/core"
-import { Effect, Schema } from "effect"
+import { Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { makeEditorAtom } from "../../src/editor"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark, ItalicMark } from "../../src/schema/marks"
+import { makeEditorAtom } from "tiptap-effect/editor"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark, ItalicMark } from "tiptap-effect/schema"
 import {
   DocNode,
   HeadingNode,
   ParagraphNode,
   TextNode,
-} from "../../src/schema/nodes"
-import { TransactionBus } from "../../src/transaction-bus"
-import { EditorId } from "../../src/types"
-import { withoutPmHistory } from "../../src/internal/strip-pm-history"
+} from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
+import { withoutPmHistory } from "../../src/editor/internal/strip-pm-history"
 import { waitForAtom } from "../helpers/atom"
 
 const lessonSchema = defineEditorSchema({
@@ -150,18 +149,6 @@ describe("makeEditorAtom — transaction funnel to bus", () => {
 
     // Programmatically trigger a transaction (insert text)
     handle._internal.editor.commands.insertContent("World")
-
-    // Read latest snapshot via the bus
-    const latest = await Effect.runPromise(
-      Effect.gen(function* () {
-        const bus = yield* TransactionBus
-        return yield* bus.latest(id)
-      }).pipe(Effect.provide(TransactionBus.Default)),
-    )
-    // Note: this uses a separate TransactionBus instance from the editor's runtime;
-    // the snapshot won't appear here. We instead assert the listener exists and was
-    // invoked at least once via the EventEmitter.
-    void latest
 
     const editor = handle._internal.editor
     const callbacks = (editor as unknown as { callbacks: Record<string, Array<unknown>> }).callbacks

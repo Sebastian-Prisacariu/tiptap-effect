@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { Sequence, sequenceRecordSchema } from "../../src/command-sequence"
-import { InsertTextCommand } from "../../src/commands"
+import { Sequence, sequenceRecordSchema } from "tiptap-effect/command"
+import { InsertTextCommand } from "tiptap-effect/command/commands"
 
 describe("Sequence — record encode/decode", () => {
   it("toRecord(inputs) produces { op, steps: [{op, input}, ...] }", () => {

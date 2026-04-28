@@ -1,15 +1,15 @@
 import { Registry, Result } from "@effect-atom/atom"
 import { Effect } from "effect"
 import { afterEach, beforeEach, describe, it } from "vitest"
-import { CommandExecutor } from "../../src/command-executor"
-import { InsertTextCommand, MarkSavedCommand } from "../../src/commands"
-import { dirtyAtom } from "../../src/dirty"
-import { makeEditorAtom } from "../../src/editor"
-import { editorRuntime } from "../../src/runtime"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark } from "../../src/schema/marks"
-import { DocNode, ParagraphNode, TextNode } from "../../src/schema/nodes"
-import { EditorId } from "../../src/types"
+import { CommandExecutor } from "tiptap-effect/command"
+import { InsertTextCommand, MarkSavedCommand } from "tiptap-effect/command/commands"
+import { dirtyAtom } from "tiptap-effect/dirty"
+import { makeEditorAtom } from "tiptap-effect/editor"
+import { editorRuntime } from "tiptap-effect/runtime"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark } from "tiptap-effect/schema"
+import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
+import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "../helpers/atom"
 
 const lessonSchema = defineEditorSchema({
@@ -35,7 +35,7 @@ afterEach(() => {
 /**
  * Run an Effect through the SAME editorRuntime that dirtyAtom subscribes to —
  * critical for tests that need MarkSavedCommand's DirtyTracker writes to be
- * visible to dirtyAtom's reads. Mirrors `runOneShotAtom` from src/react/hooks.ts.
+ * visible to dirtyAtom's reads. Mirrors `runOneShotResult` from src/react/hooks.ts.
  */
 const runViaRuntime = <A, E>(
   reg: Registry.Registry,

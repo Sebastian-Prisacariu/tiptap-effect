@@ -1,2 +1,2 @@
-export { BoldMark } from "./bold.js"
-export { ItalicMark } from "./italic.js"
+export { BoldMark } from "./bold"
+export { ItalicMark } from "./italic"

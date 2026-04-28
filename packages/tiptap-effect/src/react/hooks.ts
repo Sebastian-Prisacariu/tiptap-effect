@@ -1,24 +1,24 @@
 import { Result, useAtomValue, RegistryContext } from "@effect-atom/atom-react"
-import type { Atom, Registry } from "@effect-atom/atom"
+import { type Atom, Registry } from "@effect-atom/atom"
 import type { Editor as TiptapEditor } from "@tiptap/core"
-import { Data, Effect, Stream } from "effect"
+import { Data, Effect, Exit, Stream } from "effect"
 import * as React from "react"
 import type {
   CommandValidationError,
   EditorRunnableCommand,
   NotReversibleError,
-} from "../command.js"
+} from "../command"
 import {
   CommandBusyError,
   CommandExecutor,
   type CommandFailed,
-} from "../command-executor.js"
-import type { CommandRecord } from "../command-history.js"
-import { futureRecordsAtom, pastRecordsAtom } from "../history-atoms.js"
-import { commandPendingAtom } from "../pending-atoms.js"
-import { editorRuntime } from "../runtime.js"
-import { useEditorScope } from "./EditorScope.js"
-import type { EditorId } from "../types.js"
+} from "../command/command-executor"
+import type { CommandRecord } from "../command/command-history"
+import { futureRecordsAtom, pastRecordsAtom } from "../command/internal/history-atoms"
+import { commandPendingAtom } from "../command/internal/pending-atoms"
+import { editorRuntime } from "../runtime"
+import { useEditorScope } from "./EditorScope"
+import type { EditorId } from "../types"
 
 export class DispatchNotReadyError extends Data.TaggedError("DispatchNotReadyError")<{
   readonly message: string
@@ -79,63 +79,41 @@ const useRegistry = (): Registry.Registry => {
   return r
 }
 
-const runOneShotAtom = <A, E>(
+const runOneShotExit = <A, E>(
   registry: Registry.Registry,
   effect: Effect.Effect<A, E, CommandExecutor>,
-): Promise<A> => {
+): Promise<Exit.Exit<A, E>> => {
   // editorRuntime (Atom.runtime(TiptapLayer)) already provides CommandExecutor
   // via the registry-scoped TiptapLayer. Do NOT re-provide it here — that would
   // shadow the shared CommandHistory with a fresh one and break undo.
   const oneShot = editorRuntime.atom(effect)
-  return new Promise<A>((resolve, reject) => {
-    const tryResolve = (r: Result.Result<A, E>) => {
-      if (Result.isSuccess(r)) {
-        unsub()
-        resolve(r.value)
-        return true
-      }
-      if (Result.isFailure(r)) {
-        unsub()
-        reject(r.cause as unknown)
-        return true
-      }
-      return false
-    }
-    const unsub = registry.subscribe(oneShot, tryResolve)
-    if (tryResolve(registry.get(oneShot))) return
-  })
+  return Effect.runPromiseExit(
+    Registry.getResult(registry, oneShot, { suspendOnWaiting: true }),
+  )
 }
 
 const runOneShotResult = <A, E>(
   registry: Registry.Registry,
   effect: Effect.Effect<A, E, CommandExecutor>,
-): Promise<Result.Result<A, E>> => {
-  const oneShot = editorRuntime.atom(effect)
-  return new Promise<Result.Result<A, E>>((resolve) => {
-    const tryResolve = (r: Result.Result<A, E>) => {
-      if (Result.isSuccess(r) || Result.isFailure(r)) {
-        unsub()
-        resolve(r)
-        return true
-      }
-      return false
-    }
-    const unsub = registry.subscribe(oneShot, tryResolve)
-    if (tryResolve(registry.get(oneShot))) return
-  })
+): Promise<Result.Result<A, E>> =>
+  runOneShotExit(registry, effect).then(Result.fromExit)
+
+const resultToEffect = <A, E>(
+  result: Result.Result<A, E>,
+): Effect.Effect<A, E> => {
+  if (Result.isSuccess(result)) return Effect.succeed(result.value)
+  if (Result.isFailure(result)) return Effect.failCause(result.cause)
+  return Effect.never
 }
 
 /**
- * Dispatch a Command. Returns a Promise that resolves on Success and rejects
- * on Failure. Most ergonomic of the three dispatch variants — pair with
- * try/catch.
- *
- * Throws if called before the editor has fully constructed (initial Result).
+ * Dispatch a Command and receive a `Promise<Result<Out, Err>>`. Useful when
+ * you want to handle success/failure in a single branch without try/catch.
  */
 export const useDispatch = (): (<Op extends string, In, Out, Err>(
   cmd: EditorRunnableCommand<Op, In, Out, Err>,
   input: In,
-) => Promise<Out>) => {
+) => Promise<Result.Result<Out, DispatchError<Err>>>) => {
   const { atom } = useEditorScope()
   const result = useAtomValue(atom)
   const registry = useRegistry()
@@ -144,10 +122,12 @@ export const useDispatch = (): (<Op extends string, In, Out, Err>(
     <Op extends string, In, Out, Err>(
       cmd: EditorRunnableCommand<Op, In, Out, Err>,
       input: In,
-    ): Promise<Out> => {
+    ): Promise<Result.Result<Out, DispatchError<Err>>> => {
       if (!Result.isSuccess(result)) {
-        return Promise.reject(
-          new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
+        return Promise.resolve(
+          Result.fail<DispatchError<Err>, Out>(
+            new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
+          ),
         )
       }
       const editor = result.value._internal.editor
@@ -155,7 +135,7 @@ export const useDispatch = (): (<Op extends string, In, Out, Err>(
         const exec = yield* CommandExecutor
         return yield* exec.run(editor, cmd, input)
       })
-      return runOneShotAtom<Out, DispatchError<Err>>(registry, effect)
+      return runOneShotResult<Out, DispatchError<Err>>(registry, effect)
     },
     [result, registry],
   )
@@ -187,62 +167,24 @@ export const useDispatchEffect = (): (<Op extends string, In, Out, Err>(
         )
       }
       const editor = result.value._internal.editor
-      // Wrap the runOneShotAtom Promise (which goes through editorRuntime so
-      // CommandExecutor is satisfied) in Effect.tryPromise. The error channel
-      // matches the cmd's declared Err.
-      return Effect.tryPromise({
-        try: () =>
-          runOneShotAtom<Out, DispatchError<Err>>(
-            registry,
-            Effect.gen(function* () {
-              const exec = yield* CommandExecutor
-              return yield* exec.run(editor, cmd, input)
-            }),
-          ),
-        catch: (cause) => cause as DispatchError<Err>,
-      })
+      return Effect.promise(() =>
+        runOneShotResult<Out, DispatchError<Err>>(
+          registry,
+          Effect.gen(function* () {
+            const exec = yield* CommandExecutor
+            return yield* exec.run(editor, cmd, input)
+          }),
+        ),
+      ).pipe(Effect.flatMap(resultToEffect))
     },
     [result, registry],
   )
 }
 
 /**
- * Dispatch a Command and receive a `Promise<Result<Out, Err>>`. Useful when
- * you want to handle success/failure in a single branch without try/catch.
+ * Backwards-compatible alias for `useDispatch`.
  */
-export const useDispatchPromise = (): (<Op extends string, In, Out, Err>(
-  cmd: EditorRunnableCommand<Op, In, Out, Err>,
-  input: In,
-) => Promise<Result.Result<Out, DispatchError<Err>>>) => {
-  const { atom } = useEditorScope()
-  const result = useAtomValue(atom)
-  const registry = useRegistry()
-
-  return React.useCallback(
-    async <Op extends string, In, Out, Err>(
-      cmd: EditorRunnableCommand<Op, In, Out, Err>,
-      input: In,
-    ): Promise<Result.Result<Out, DispatchError<Err>>> => {
-      if (!Result.isSuccess(result)) {
-        return await runOneShotResult<Out, DispatchError<Err>>(
-          registry,
-          Effect.fail(
-            new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
-          ),
-        )
-      }
-      const editor = result.value._internal.editor
-      return await runOneShotResult<Out, DispatchError<Err>>(
-        registry,
-        Effect.gen(function* () {
-          const exec = yield* CommandExecutor
-          return yield* exec.run(editor, cmd, input)
-        }),
-      )
-    },
-    [result, registry],
-  )
-}
+export const useDispatchPromise = useDispatch
 
 /**
  * Undo/redo controls bound to the current scope's editor, plus the live
@@ -252,46 +194,46 @@ export const useDispatchPromise = (): (<Op extends string, In, Out, Err>(
  * exactly when the corresponding history stack changes.
  */
 export const useHistory = (): {
-  readonly undo: () => Promise<void>
-  readonly redo: () => Promise<void>
+  readonly undo: () => Promise<Result.Result<CommandRecord | null, unknown>>
+  readonly redo: () => Promise<Result.Result<CommandRecord | null, unknown>>
   readonly past: ReadonlyArray<CommandRecord>
   readonly future: ReadonlyArray<CommandRecord>
 } => {
-  const { atom } = useEditorScope()
+  const { id, atom } = useEditorScope()
   const result = useAtomValue(atom)
   const registry = useRegistry()
 
-  const pastResult = useAtomValue(pastRecordsAtom)
-  const futureResult = useAtomValue(futureRecordsAtom)
+  const pastResult = useAtomValue(pastRecordsAtom(id))
+  const futureResult = useAtomValue(futureRecordsAtom(id))
   const past = Result.isSuccess(pastResult) ? pastResult.value : []
   const future = Result.isSuccess(futureResult) ? futureResult.value : []
 
   const controls = React.useMemo(() => {
-    const guarded = (run: (editor: TiptapEditor) => Promise<unknown>) =>
-      async () => {
+    const guarded = (
+      run: (editor: TiptapEditor) => Effect.Effect<CommandRecord | null, unknown, CommandExecutor>,
+    ) =>
+      (): Promise<Result.Result<CommandRecord | null, unknown>> => {
         if (!Result.isSuccess(result)) {
-          throw new Error("tiptap-effect: editor not ready")
+          return Promise.resolve(
+            Result.fail<unknown, CommandRecord | null>(
+              new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
+            ),
+          )
         }
-        await run(result.value._internal.editor)
+        return runOneShotResult(registry, run(result.value._internal.editor))
       }
     return {
       undo: guarded((editor) =>
-        runOneShotAtom(
-          registry,
-          Effect.gen(function* () {
-            const exec = yield* CommandExecutor
-            yield* exec.undo(editor)
-          }) as Effect.Effect<void, unknown, CommandExecutor>,
-        ),
+        Effect.gen(function* () {
+          const exec = yield* CommandExecutor
+          return yield* exec.undo(editor)
+        }),
       ),
       redo: guarded((editor) =>
-        runOneShotAtom(
-          registry,
-          Effect.gen(function* () {
-            const exec = yield* CommandExecutor
-            yield* exec.redo(editor)
-          }) as Effect.Effect<void, unknown, CommandExecutor>,
-        ),
+        Effect.gen(function* () {
+          const exec = yield* CommandExecutor
+          return yield* exec.redo(editor)
+        }),
       ),
     }
   }, [result, registry])
@@ -309,7 +251,8 @@ export const useHistory = (): {
  * that as `false` (no pending dispatch yet).
  */
 export const useCommandPending = (op: string): boolean => {
-  const atom = React.useMemo(() => commandPendingAtom(op), [op])
+  const { id } = useEditorScope()
+  const atom = React.useMemo(() => commandPendingAtom(id, op), [id, op])
   const r = useAtomValue(atom)
   return Result.isSuccess(r) ? r.value : false
 }
@@ -324,6 +267,7 @@ export const useCommandPending = (op: string): boolean => {
 export const useCommandErrors = (
   handler: (event: CommandFailed) => void,
 ): void => {
+  const { id } = useEditorScope()
   const handlerRef = React.useRef(handler)
   React.useEffect(() => {
     handlerRef.current = handler
@@ -337,11 +281,13 @@ export const useCommandErrors = (
       editorRuntime.atom(
         Stream.unwrap(
           Effect.map(CommandExecutor, (exec) =>
-            Stream.fromPubSub(exec.commandFailedEvents),
+            Stream.fromPubSub(exec.commandFailedEvents).pipe(
+              Stream.filter((event) => event.editorId === id),
+            ),
           ),
         ),
       ),
-    [],
+    [id],
   )
   const r = useAtomValue(atom)
   React.useEffect(() => {
@@ -361,7 +307,7 @@ export const useCommandErrors = (
  * yet have a Command wrapper.
  *
  * The required `{ unsafe: true }` argument is a code-review marker so usages
- * can be greppe'd.
+ * can be grepped.
  */
 export const useRawEditor = (opts: { unsafe: true }): TiptapEditor | null => {
   // Argument exists purely as a typed marker; ignored at runtime.

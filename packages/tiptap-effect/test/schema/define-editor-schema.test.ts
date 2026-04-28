@@ -1,13 +1,13 @@
 import { Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { defineEditorSchema } from "../../src/schema/define"
-import { BoldMark, ItalicMark } from "../../src/schema/marks"
+import { defineEditorSchema } from "tiptap-effect/schema"
+import { BoldMark, ItalicMark } from "tiptap-effect/schema"
 import {
   DocNode,
   HeadingNode,
   ParagraphNode,
   TextNode,
-} from "../../src/schema/nodes"
+} from "tiptap-effect/schema"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode, heading: HeadingNode },

@@ -1,9 +1,9 @@
 import { Result, useAtomValue } from "@effect-atom/atom-react"
 import * as React from "react"
 import * as ReactDOM from "react-dom"
-import { useEditorScope } from "./EditorScope.js"
-import { NodeViewContext } from "./NodeViewContext.js"
-import type { NodeViewEntry, NodeViewStore } from "./node-view-store.js"
+import { useEditorScope } from "./EditorScope"
+import { NodeViewContext } from "./NodeViewContext"
+import type { NodeViewEntry, NodeViewStore } from "./internal/node-view-store"
 
 const useNodeViewEntries = (
   store: NodeViewStore | null,

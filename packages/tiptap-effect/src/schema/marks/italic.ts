@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import type { MarkDefinition } from "../node-definition.js"
+import type { MarkDefinition } from "../node-definition"
 
 export const ItalicMark: MarkDefinition<"italic", Record<string, never>> = {
   name: "italic",

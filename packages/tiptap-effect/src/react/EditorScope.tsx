@@ -1,7 +1,7 @@
 import type { Atom } from "@effect-atom/atom"
 import * as React from "react"
-import { makeEditorAtom, type EditorHandle, type EditorInitError, type EditorSpec } from "../editor.js"
-import type { EditorId } from "../types.js"
+import { makeEditorAtom, type EditorHandle, type EditorInitError, type EditorSpec } from "../editor"
+import type { EditorId } from "../types"
 import type { Result } from "@effect-atom/atom"
 
 export interface ScopedEditorContextValue<

@@ -3,14 +3,17 @@ export {
   type EditorSchema,
   type NodeJSON,
   type MarkJSON,
-} from "./define.js"
+} from "./define"
 export {
   tiptapAttrsFromSchema,
   type TiptapAttributeSpec,
-} from "./derive.js"
+} from "./derive"
 export type {
   NodeDefinition,
   MarkDefinition,
-} from "./node-definition.js"
-export * as Nodes from "./nodes/index.js"
-export * as Marks from "./marks/index.js"
+} from "./node-definition"
+export { SelectionInfo } from "./selection"
+export * from "./nodes/index"
+export * from "./marks/index"
+export * as Nodes from "./nodes/index"
+export * as Marks from "./marks/index"

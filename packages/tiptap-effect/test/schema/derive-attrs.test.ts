@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { tiptapAttrsFromSchema } from "../../src/schema/derive"
+import { tiptapAttrsFromSchema } from "tiptap-effect/schema"
 
 describe("tiptapAttrsFromSchema", () => {
   it("derives parseHTML/renderHTML for a string field", () => {
