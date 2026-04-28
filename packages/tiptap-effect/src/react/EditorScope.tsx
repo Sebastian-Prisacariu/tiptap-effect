@@ -32,7 +32,7 @@ export const EditorScope: React.FC<{
 }> = ({ id, spec, children }) => {
   // Memoise the atom by id. Spec changes on the same id do NOT recreate the
   // atom — surgical updates flow through `editableAtom` etc.
-  const atom = React.useMemo(() => makeEditorAtom(spec), [id]) // eslint-disable-line react-hooks/exhaustive-deps
+  const atom = React.useMemo(() => makeEditorAtom(spec), [id])
   const value = React.useMemo<ScopedEditorContextValue>(
     () => ({ id, spec, atom }),
     [id, spec, atom],
