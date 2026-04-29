@@ -4,6 +4,11 @@ export {
   type ScopedEditorContextValue,
 } from "./EditorScope"
 export { TiptapView } from "./TiptapView"
+export { reactNodeView } from "./node-view"
+export {
+  reactDecoration,
+  type ReactDecorationSpec,
+} from "./decoration"
 export {
   useDispatch,
   useDispatchEffect,

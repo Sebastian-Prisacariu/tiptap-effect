@@ -1,7 +1,8 @@
 import { Atom, Result } from "@effect-atom/atom"
-import { Effect, Either, ParseResult, Stream } from "effect"
+import { Cause, Effect, Either, ParseResult, Stream } from "effect"
 import { editorRuntime } from "../runtime"
 import { TransactionBus } from "../runtime/internal/transaction-bus"
+import type { EditorCommand } from "../command"
 import type { EditorSchema } from "../schema/define"
 import type { EditorId, TransactionSnapshot } from "../types"
 import {
@@ -11,6 +12,7 @@ import {
   documentHtmlFromState,
 } from "./internal/document-validation"
 import { projectSelection } from "../internal/project-selection"
+import { getEditorById } from "../internal/editor-ids"
 
 /**
  * Per-editor atom that mirrors the latest TransactionSnapshot pushed to the
@@ -45,6 +47,22 @@ type MarkSelectionState = {
   readonly storedMarks?: ReadonlyArray<NamedMark> | null
 }
 
+export interface SelectedNodeInfo {
+  readonly pos: number
+  readonly nodeType: string
+  readonly attrs: Readonly<Record<string, unknown>>
+}
+
+type NodeSelectionState = {
+  readonly selection: {
+    readonly from: number
+    readonly node?: {
+      readonly type: { readonly name: string }
+      readonly attrs: Record<string, unknown>
+    }
+  }
+}
+
 /**
  * Selection slice atom. Reads from the latest transaction snapshot's state.
  * Returns `null` until the first transaction emits.
@@ -54,6 +72,23 @@ export const selectionAtom = (editorId: EditorId) =>
     const snap = unwrapSnap(r)
     if (!snap) return null
     return projectSelection(snap.stateAfter)
+  })
+
+/**
+ * The selected node, if the current PM selection is a NodeSelection.
+ */
+export const selectedNodeAtom = (editorId: EditorId) =>
+  Atom.map(transactionBusAtom(editorId), (r): SelectedNodeInfo | null => {
+    const snap = unwrapSnap(r)
+    if (!snap) return null
+    const state = snap.stateAfter as NodeSelectionState
+    const node = state.selection.node
+    if (node === undefined) return null
+    return {
+      pos: state.selection.from,
+      nodeType: node.type.name,
+      attrs: node.attrs,
+    }
   })
 
 /**
@@ -75,6 +110,20 @@ export const isActiveAtom = (editorId: EditorId, markName: string) =>
       )
     }
     return state.doc.rangeHasMark(state.selection.from, state.selection.to, markType)
+  })
+
+/**
+ * Whether an editor command can run against the editor's current state.
+ */
+export const canExecuteAtom = <In, Out, Err>(
+  editorId: EditorId,
+  command: EditorCommand<string, In, Out, Err>,
+  input: In,
+) =>
+  Atom.map(transactionBusAtom(editorId), () => {
+    const editor = getEditorById(editorId)
+    if (editor === null) return false
+    return command.apply(editor.can().chain(), input).run()
   })
 
 /**
@@ -127,8 +176,8 @@ export const focusAtom = (editorId: EditorId) =>
 /**
  * The current doc as a typed `NodeJSON`, decoded against `schema.Document`.
  *
- * Returns `null` until the first transaction emits, then `Either.right(doc)`
- * on successful schema decode and `Either.left(parseError)` on failure.
+ * Returns `null` until the first transaction emits, then `Result.success(doc)`
+ * on successful schema decode and `Result.failure(parseError)` on failure.
  *
  * Lazy: `Schema.decodeUnknown` is not invoked until a subscriber reads this
  * atom — `Atom.map` does not run its projection unless someone observes it.
@@ -145,7 +194,7 @@ export const docAtom = <
 ) =>
   Atom.map(transactionBusAtom(editorId), (
     r,
-  ): Either.Either<
+  ): Result.Result<
     DecodedDocument<N, M>,
     ParseResult.ParseError | DocumentJsonError
   > | null => {
@@ -153,9 +202,9 @@ export const docAtom = <
     if (!snap) return null
     const decoded = decodeDocumentFromState(schema, snap.stateAfter)
     if (Either.isLeft(decoded)) {
-      return Either.left(decoded.left)
+      return Result.failure(Cause.fail(decoded.left))
     }
-    return Either.right(decoded.right)
+    return Result.success(decoded.right)
   })
 
 /**

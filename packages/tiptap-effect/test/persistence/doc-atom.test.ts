@@ -1,5 +1,4 @@
-import { Registry } from "@effect-atom/atom"
-import { Either } from "effect"
+import { Registry, Result } from "@effect-atom/atom"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { docAtom, htmlAtom, makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
@@ -48,7 +47,7 @@ describe("docAtom", () => {
     void _keepDoc
   })
 
-  it("emits Either.right(doc) on a successful schema decode after a transaction", async () => {
+  it("emits Result.success(doc) on a successful schema decode after a transaction", async () => {
     const id = EditorId("ed-doc-2")
     const editorAtom = makeEditorAtom({
       id,
@@ -66,9 +65,9 @@ describe("docAtom", () => {
 
     const result = registry.get(doc)
     expect(result).not.toBeNull()
-    expect(Either.isRight(result!)).toBe(true)
-    if (Either.isRight(result!)) {
-      expect(result.right.type).toBe("doc")
+    expect(Result.isSuccess(result!)).toBe(true)
+    if (Result.isSuccess(result!)) {
+      expect(result.value.type).toBe("doc")
     }
     void _keepEditor
     void _keepDoc
@@ -103,9 +102,9 @@ describe("docAtom", () => {
 
     const value = registry.get(doc)
     expect(value).not.toBeNull()
-    expect(Either.isRight(value!)).toBe(true)
-    if (Either.isRight(value!)) {
-      expect(value.right.type).toBe("doc")
+    expect(Result.isSuccess(value!)).toBe(true)
+    if (Result.isSuccess(value!)) {
+      expect(value.value.type).toBe("doc")
     }
     void _keepEditor
     void _keepDoc

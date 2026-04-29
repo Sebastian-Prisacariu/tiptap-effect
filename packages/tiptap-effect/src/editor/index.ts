@@ -22,6 +22,7 @@ import {
 } from "./internal/types"
 import { registerEditorId } from "../internal/editor-ids"
 import { NodeViewStore } from "./internal/node-view-store"
+import { destroyEditorOnce } from "./internal/destroy-editor"
 
 export {
   EditorInitError,
@@ -36,11 +37,14 @@ export {
   hasSelectionAtom,
   isCollapsedAtom,
   isActiveAtom,
+  selectedNodeAtom,
+  canExecuteAtom,
   plainTextAtom,
   focusAtom,
   transactionBusAtom,
   docAtom,
   htmlAtom,
+  type SelectedNodeInfo,
 } from "./atoms"
 
 export interface EditorHandle {
@@ -92,8 +96,16 @@ export const makeEditorAtom = <
 >(
   spec: EditorSpec<N, M>,
 ) =>
-  editorRuntime.atom((get) =>
-    Effect.gen(function* () {
+  editorRuntime.atom((get) => {
+    let editorRef: TiptapEditor | undefined
+
+    get.addFinalizer(() => {
+      const editor = editorRef
+      if (editor === undefined) return
+      destroyEditorOnce(editor)
+    })
+
+    return Effect.gen(function* () {
       // extensionsAtom is read with `get(...)` — establishing a reactive
       // dependency so changes trigger a rebuild. editorPropsAtom uses
       // `get.once(...)` — read for the initial value but no dependency,
@@ -124,6 +136,7 @@ export const makeEditorAtom = <
         reactiveEditorProps,
       )
       registerEditorId(editor, spec.id)
+      editorRef = editor
 
       return yield* Effect.gen(function* () {
         const subscriptionOptions: TransactionSubscriptionOptions<N, M> = {
@@ -137,5 +150,5 @@ export const makeEditorAtom = <
 
         return yield* makeEditorHandle(nodeViewStore)
       }).pipe(Effect.provideService(EditorContext, { id: spec.id, editor }))
-    }),
-  )
+    })
+  })

@@ -16,12 +16,16 @@ export {
 export { CurrentEditor } from "./internal/current-editor"
 export { TransactionalRollbackError } from "./internal/transactional-rollback"
 export {
+  CommandErrorHandler,
+  CommandErrorHandlerLive,
+  type CommandFailed,
+} from "./command-error-handler"
+export {
   CommandExecutor,
   CommandExecutorLive,
   CommandBusyError,
   ReplayDivergenceError,
   type NotReversibleAttempt,
-  type CommandFailed,
 } from "./command-executor"
 export {
   CommandHistory,

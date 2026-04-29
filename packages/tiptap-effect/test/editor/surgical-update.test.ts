@@ -91,6 +91,11 @@ describe("extensionsAtom — rebuild on change", () => {
 
     const handleV1 = await waitForAtom(registry, editorAtom)
     const editorV1 = handleV1._internal.editor
+    const destroyV1Spy = vi.spyOn(editorV1, "destroy")
+
+    // Regression guard: unmounted Tiptap editors report isDestroyed=true even
+    // before destroy() is called. Rebuild cleanup must still call destroy().
+    expect(editorV1.isDestroyed).toBe(true)
 
     // Sanity: the v1 editor knows about extA but not extB.
     expect(editorV1.schema.nodes["extA"]).toBeDefined()
@@ -120,6 +125,7 @@ describe("extensionsAtom — rebuild on change", () => {
     // destroyed during the swap, and V2's PM schema reflects the new
     // extensions list.
     expect(editorV2).not.toBe(editorV1)
+    expect(destroyV1Spy).toHaveBeenCalledTimes(1)
     expect(editorV1.isDestroyed).toBe(true)
     expect(editorV2.schema.nodes["extA"]).toBeUndefined()
     expect(editorV2.schema.nodes["extB"]).toBeDefined()

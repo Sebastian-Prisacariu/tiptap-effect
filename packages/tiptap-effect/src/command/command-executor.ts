@@ -15,6 +15,7 @@ import { projectSelection } from "../internal/project-selection"
 import type { SelectionInfo } from "../schema/selection"
 import type { EditorId } from "../types"
 import { getEditorId } from "../internal/editor-ids"
+import { CommandErrorHandler, type CommandFailed } from "./command-error-handler"
 
 /**
  * Event emitted on the first Cmd-Z against a Reverse.notReversible entry.
@@ -48,18 +49,6 @@ export class CommandBusyError extends Data.TaggedError("CommandBusyError")<{
   readonly op: string
 }> {}
 
-/**
- * Event published on the `commandFailedEvents` PubSub for every Command that
- * fails (any policy). Interruptions do NOT publish this event — only true
- * failures.
- */
-export interface CommandFailed {
-  readonly editorId: EditorId
-  readonly op: string
-  readonly cause: unknown
-  readonly at: number
-}
-
 const A3_TOGGLE_WINDOW_MS = 3000
 
 let cmdIdCounter = 0
@@ -82,9 +71,9 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
   {
     effect: Effect.gen(function* () {
       const history = yield* CommandHistory
+      const errorHandler = yield* CommandErrorHandler
       const a3State = yield* Ref.make<ReadonlyMap<EditorId, A3State>>(new Map())
       const notReversibleEvents = yield* PubSub.unbounded<NotReversibleAttempt>()
-      const commandFailedEvents = yield* PubSub.unbounded<CommandFailed>()
       const pendingOps = yield* SubscriptionRef.make<ReadonlyMap<EditorId, ReadonlySet<string>>>(new Map())
       const emptyPendingOps: ReadonlySet<string> = new Set()
       const perOpFibers = yield* Ref.make<ReadonlyMap<string, Fiber.RuntimeFiber<unknown, unknown>>>(
@@ -401,7 +390,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
 
           const inner = realRun(editorId, editor, cmd, input).pipe(
             Effect.tapErrorCause((cause) =>
-              PubSub.publish(commandFailedEvents, {
+              errorHandler.handle({
                 editorId,
                 op,
                 cause,
@@ -707,10 +696,10 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         pendingChanges,
         interruptAllForEditor,
         notReversibleEvents,
-        commandFailedEvents,
+        commandFailedEvents: errorHandler.events,
       } as const
     }),
-    dependencies: [CommandHistory.Default],
+    dependencies: [CommandHistory.Default, CommandErrorHandler.Default],
   },
 ) {}
 

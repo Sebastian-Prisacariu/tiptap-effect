@@ -21,6 +21,8 @@ interface TiptapFocusEvent {
 
 const NO_TRANSACTION = { docChanged: false, selectionSet: false } as const
 
+const installedSubscriptions = new WeakMap<TiptapEditor, () => void>()
+
 interface InstallOptions<
   N extends EditorSchemaNodes = EditorSchemaNodes,
   M extends EditorSchemaMarks = EditorSchemaMarks,
@@ -44,6 +46,8 @@ const installTransactionSubscription = <
     const editorContext = yield* EditorContext
     const snapshotForEditor = yield* makeSnapshot()
     const editor = editorContext.editor
+    if (installedSubscriptions.has(editor)) return
+
     const schema = options.schema
     const devSchemaCheck =
       options.devSchemaCheck === true && schema !== undefined
@@ -74,12 +78,17 @@ const installTransactionSubscription = <
     editor.on("transaction", transactionHandler)
     editor.on("focus", focusHandler)
     editor.on("blur", blurHandler)
+
+    const cleanup = () => {
+      editor.off("transaction", transactionHandler)
+      editor.off("focus", focusHandler)
+      editor.off("blur", blurHandler)
+      installedSubscriptions.delete(editor)
+    }
+    installedSubscriptions.set(editor, cleanup)
+
     yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        editor.off("transaction", transactionHandler)
-        editor.off("focus", focusHandler)
-        editor.off("blur", blurHandler)
-      }),
+      Effect.sync(cleanup),
     )
   })
 

@@ -1,4 +1,4 @@
-import { Registry } from "@effect-atom/atom"
+import { Registry, Result, type Atom } from "@effect-atom/atom"
 import type { Extensions } from "@tiptap/core"
 import { Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -29,6 +29,33 @@ const validDoc = {
 
 let registry: Registry.Registry
 
+const waitForKeptAtom = <A, E>(
+  atom: Atom.Atom<Result.Result<A, E>>,
+): Promise<readonly [A, () => void]> =>
+  new Promise((resolve, reject) => {
+    let unsubscribe: (() => void) | undefined
+    const tryResolve = (result: Result.Result<A, E>) => {
+      if (Result.isSuccess(result)) {
+        resolve([result.value, () => unsubscribe?.()] as const)
+        return true
+      }
+      if (Result.isFailure(result)) {
+        reject(result.cause)
+        return true
+      }
+      return false
+    }
+    unsubscribe = registry.subscribe(atom, tryResolve, { immediate: true })
+  })
+
+const transactionFunnelCount = (editor: {
+  callbacks: Record<string, ReadonlyArray<unknown>>
+}): number =>
+  (editor.callbacks["transaction"] ?? []).filter(
+    (callback): callback is { readonly name: string } =>
+      typeof callback === "function" && callback.name === "transactionHandler",
+  ).length
+
 beforeEach(() => {
   registry = Registry.make()
 })
@@ -44,11 +71,12 @@ describe("makeEditorAtom — lifecycle", () => {
       schema: lessonSchema,
       defaultContent: validDoc,
     })
-    const handle = await waitForAtom(registry, atom)
+    const [handle, keepAlive] = await waitForKeptAtom(atom)
     expect(handle._internal.editor).toBeDefined()
     // PM reports isDestroyed=true for an unmounted editor (no editorView).
     // We just check the constructor didn't throw and we have an Editor instance.
     expect(typeof handle._internal.editor.commands.insertContent).toBe("function")
+    keepAlive()
   })
 
   it("registers exactly one transaction listener", async () => {
@@ -57,50 +85,53 @@ describe("makeEditorAtom — lifecycle", () => {
       schema: lessonSchema,
       defaultContent: validDoc,
     })
-    const handle = await waitForAtom(registry, atom)
+    const [handle, keepAlive] = await waitForKeptAtom(atom)
     const editor = handle._internal.editor
-    // EventEmitter exposes `callbacks` map (per Tiptap's EventEmitter)
-    const callbacks = (editor as unknown as { callbacks: Record<string, Array<unknown>> }).callbacks
-    expect(callbacks["transaction"]?.length ?? 0).toBe(1)
+    // EventEmitter exposes `callbacks` map (per Tiptap's EventEmitter).
+    expect(
+      transactionFunnelCount(
+        editor as unknown as { callbacks: Record<string, ReadonlyArray<unknown>> },
+      ),
+    ).toBe(1)
+    keepAlive()
   })
 
-  // TODO: registry.dispose() runs the Scope.close via Effect.runFork (async).
-  // Under happy-dom + vitest, the fiber doesn't seem to flush within polling.
-  // The implementation correctly registers editor.destroy as a Scope finalizer
-  // (verified by reading editor.ts); a focused integration test will land in
-  // US-10 once <EditorScope> exercises the lifecycle in a real React tree.
-  it.skip("destroys the editor exactly once when registry disposes", async () => {
+  it("destroys the editor exactly once when registry disposes", async () => {
     const atom = makeEditorAtom({
       id: EditorId("ed-destroy"),
       schema: lessonSchema,
       defaultContent: validDoc,
     })
-    const keepAlive = registry.subscribe(atom, () => {})
+    registry.subscribe(atom, () => {})
     const handle = await waitForAtom(registry, atom)
-    const destroySpy = vi.spyOn(handle._internal.editor, "destroy")
-    keepAlive()
+    handle.mount(document.createElement("div"))
+    let destroyEvents = 0
+    handle._internal.editor.on("destroy", () => {
+      destroyEvents += 1
+    })
     registry.dispose()
-    for (let i = 0; i < 50; i++) {
-      if (destroySpy.mock.calls.length > 0) break
+    for (let i = 0; i < 100; i += 1) {
+      if (handle._internal.editor.isDestroyed) break
       await new Promise((r) => setTimeout(r, 10))
     }
-    expect(destroySpy).toHaveBeenCalledTimes(1)
+    expect(handle._internal.editor.isDestroyed).toBe(true)
+    expect(destroyEvents).toBe(1)
   })
 
-  it("registers a Scope finalizer that calls editor.destroy", async () => {
-    // Verify the finalizer wiring without depending on Effect.runFork timing.
+  it("calls destroy exactly once for an unmounted editor when registry disposes", async () => {
     const atom = makeEditorAtom({
       id: EditorId("ed-destroy-direct"),
       schema: lessonSchema,
       defaultContent: validDoc,
     })
-    const keepAlive = registry.subscribe(atom, () => {})
+    registry.subscribe(atom, () => {})
     const handle = await waitForAtom(registry, atom)
-    keepAlive()
-    // The handle holds a reference to the editor; we can call destroy
-    // ourselves to verify it's idempotent (the finalizer guard is `!isDestroyed`).
-    handle._internal.editor.destroy()
+    const destroySpy = vi.spyOn(handle._internal.editor, "destroy")
+
     expect(handle._internal.editor.isDestroyed).toBe(true)
+    registry.dispose()
+
+    expect(destroySpy).toHaveBeenCalledTimes(1)
   })
 
   it("mount(el) attaches the editor; mount(null) detaches", async () => {
@@ -109,7 +140,7 @@ describe("makeEditorAtom — lifecycle", () => {
       schema: lessonSchema,
       defaultContent: validDoc,
     })
-    const handle = await waitForAtom(registry, atom)
+    const [handle, keepAlive] = await waitForKeptAtom(atom)
     const div = document.createElement("div")
     const mountSpy = vi.spyOn(handle._internal.editor, "mount")
     const unmountSpy = vi.spyOn(handle._internal.editor, "unmount")
@@ -117,6 +148,7 @@ describe("makeEditorAtom — lifecycle", () => {
     expect(mountSpy).toHaveBeenCalledWith(div)
     handle.mount(null)
     expect(unmountSpy).toHaveBeenCalledTimes(1)
+    keepAlive()
   })
 })
 
@@ -127,8 +159,9 @@ describe("makeEditorAtom — schema validation", () => {
       schema: lessonSchema,
       defaultContent: validDoc,
     })
-    const handle = await waitForAtom(registry, atom)
+    const [handle, keepAlive] = await waitForKeptAtom(atom)
     expect(handle._internal.editor).toBeDefined()
+    keepAlive()
   })
 
   it("rejects invalid defaultContent with EditorInitError", async () => {
@@ -145,14 +178,18 @@ describe("makeEditorAtom — transaction funnel to bus", () => {
   it("pushes a snapshot to TransactionBus for every transaction", async () => {
     const id = EditorId("ed-bus")
     const atom = makeEditorAtom({ id, schema: lessonSchema, defaultContent: validDoc })
-    const handle = await waitForAtom(registry, atom)
+    const [handle, keepAlive] = await waitForKeptAtom(atom)
 
     // Programmatically trigger a transaction (insert text)
     handle._internal.editor.commands.insertContent("World")
 
     const editor = handle._internal.editor
-    const callbacks = (editor as unknown as { callbacks: Record<string, Array<unknown>> }).callbacks
-    expect(callbacks["transaction"]?.length ?? 0).toBe(1)
+    expect(
+      transactionFunnelCount(
+        editor as unknown as { callbacks: Record<string, ReadonlyArray<unknown>> },
+      ),
+    ).toBe(1)
+    keepAlive()
   })
 })
 

@@ -9,7 +9,14 @@ import {
   ParagraphNode,
   TextNode,
 } from "../src/schema/nodes"
-import { focusAtom, isActiveAtom, selectionAtom } from "tiptap-effect/editor"
+import {
+  canExecuteAtom,
+  focusAtom,
+  isActiveAtom,
+  selectedNodeAtom,
+  selectionAtom,
+} from "tiptap-effect/editor"
+import { ToggleMarkCommand } from "tiptap-effect/command/commands"
 import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "./helpers/atom"
 
@@ -85,6 +92,53 @@ describe("slices", () => {
 
     const value = registry.get(bold)
     expect(value).toBe(false)
+  })
+
+  it("selectedNodeAtom is non-null only for node selections", async () => {
+    const id = EditorId("ed-selected-node-1")
+    const editorAtom = makeEditorAtom({
+      id,
+      schema: lessonSchema,
+      defaultContent: validDoc,
+    })
+    const selectedNode = selectedNodeAtom(id)
+
+    const _keepEditor = registry.subscribe(editorAtom, () => {})
+    const _keepSelectedNode = registry.subscribe(selectedNode, () => {})
+    const editorHandle = await waitForAtom(registry, editorAtom)
+    editorHandle.mount(document.createElement("div"))
+
+    editorHandle._internal.editor.commands.setTextSelection(1)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(registry.get(selectedNode)).toBeNull()
+
+    editorHandle._internal.editor.commands.setNodeSelection(0)
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(registry.get(selectedNode)).toEqual({
+      pos: 0,
+      nodeType: "paragraph",
+      attrs: {},
+    })
+  })
+
+  it("canExecuteAtom projects whether an editor command can run", async () => {
+    const id = EditorId("ed-can-execute-1")
+    const editorAtom = makeEditorAtom({
+      id,
+      schema: lessonSchema,
+      defaultContent: validDoc,
+    })
+    const canToggleBold = canExecuteAtom(id, ToggleMarkCommand("bold"), undefined)
+
+    const _keepEditor = registry.subscribe(editorAtom, () => {})
+    const _keepCanExecute = registry.subscribe(canToggleBold, () => {})
+    const editorHandle = await waitForAtom(registry, editorAtom)
+    editorHandle.mount(document.createElement("div"))
+    editorHandle._internal.editor.commands.setTextSelection({ from: 1, to: 1 })
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(registry.get(canToggleBold)).toBe(true)
   })
 
   it("focusAtom flips to true on focus and back to false on blur", async () => {

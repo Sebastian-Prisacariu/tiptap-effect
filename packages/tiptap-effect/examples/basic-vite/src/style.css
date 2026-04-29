@@ -1,0 +1,39 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: #171717;
+  background: #f7f7f7;
+}
+
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.toolbar button[data-active="true"] {
+  font-weight: 700;
+}
+
+.editor {
+  min-height: 180px;
+  padding: 16px;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  background: white;
+}
+
+pre {
+  overflow: auto;
+  padding: 16px;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #f9fafb;
+}

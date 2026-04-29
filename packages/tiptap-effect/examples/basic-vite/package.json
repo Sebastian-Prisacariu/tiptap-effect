@@ -1,0 +1,25 @@
+{
+  "name": "tiptap-effect-basic-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "@effect-atom/atom": "latest",
+    "@effect-atom/atom-react": "latest",
+    "@tiptap/core": "latest",
+    "effect": "latest",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tiptap-effect": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "latest",
+    "typescript": "^5.7.2",
+    "vite": "latest"
+  }
+}

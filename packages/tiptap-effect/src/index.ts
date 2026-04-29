@@ -55,6 +55,8 @@ export {
   TransactionalRollbackError,
   CommandExecutor,
   CommandExecutorLive,
+  CommandErrorHandler,
+  CommandErrorHandlerLive,
   CommandBusyError,
   ReplayDivergenceError,
   type NotReversibleAttempt,
@@ -80,11 +82,14 @@ export {
   hasSelectionAtom,
   isCollapsedAtom,
   isActiveAtom,
+  selectedNodeAtom,
+  canExecuteAtom,
   plainTextAtom,
   focusAtom,
   transactionBusAtom,
   docAtom,
   htmlAtom,
+  type SelectedNodeInfo,
 } from "./editor"
 
 // Static rendering — re-exported from @tiptap/core for SSR / non-editable views
@@ -100,6 +105,8 @@ export * as Commands from "./command/commands/index"
 export {
   EditorScope,
   TiptapView,
+  reactNodeView,
+  reactDecoration,
   useEditorScope,
   useEditorSlice,
   useEditorSubscribe,
@@ -111,5 +118,7 @@ export {
   useCommandPending,
   useCommandErrors,
   useRawEditor,
+  useNodeViewProps,
+  type ReactDecorationSpec,
   type ScopedEditorContextValue,
 } from "./react/index"
