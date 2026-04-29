@@ -1,4 +1,5 @@
 import type { Editor as TiptapEditor } from "@tiptap/core";
+import type { EditorState } from "@tiptap/pm/state";
 import { Data, Effect, Schema } from "effect";
 import { CurrentEditor } from "./internal/current-editor";
 
@@ -148,7 +149,7 @@ export interface EditorCommand<
   readonly _editorCommand: true;
   readonly apply: (chain: Chain, input: In) => Chain;
   readonly applyReverse?: (chain: Chain, input: In, captured: Out) => Chain;
-  readonly reverseSetup?: (state: unknown, input: In) => Out;
+  readonly reverseSetup?: (state: EditorState, input: In) => Out;
 }
 
 interface EditorCommandBaseSpec<Op extends string, In> {
@@ -169,7 +170,7 @@ interface ReversibleEditorCommandSpec<
 > extends EditorCommandBaseSpec<Op, In> {
   outputSchema: Schema.Schema<Out>;
   applyReverse: (chain: Chain, input: In, captured: Out) => Chain;
-  reverseSetup: (state: unknown, input: In) => Out;
+  reverseSetup: (state: EditorState, input: In) => Out;
   coalesce?: (
     prev: CoalescePair<In, Out>,
     next: CoalescePair<In, Out>,

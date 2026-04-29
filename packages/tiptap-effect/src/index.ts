@@ -100,6 +100,7 @@ export { dirtyAtom, lastSavedAtom } from "./dirty"
 
 // Built-in commands
 export * as Commands from "./command/commands/index"
+export * as DocumentSelectors from "./document/index"
 
 // React layer
 export {

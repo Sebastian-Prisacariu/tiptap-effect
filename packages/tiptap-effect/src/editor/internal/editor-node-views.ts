@@ -6,6 +6,7 @@ import type { EditorSchemaMarks, EditorSchemaNodes } from "./types"
 interface TiptapNode {
   readonly type: { readonly name: string }
   readonly attrs: Record<string, unknown>
+  readonly isLeaf: boolean
 }
 
 interface TiptapNodeViewInput {
@@ -16,7 +17,7 @@ interface TiptapNodeViewInput {
 }
 
 type NodeViewDefinition = {
-  readonly reactNodeView?: React.FC
+  readonly reactNodeView?: React.FC<Record<string, unknown>>
 }
 
 const withReactNodeViews = <
@@ -37,6 +38,10 @@ const withReactNodeViews = <
       addNodeView() {
         return ({ node, getPos }: TiptapNodeViewInput) => {
           const dom = document.createElement("div")
+          const reactMount = document.createElement("div")
+          dom.appendChild(reactMount)
+          const contentDOM = node.isLeaf ? null : document.createElement("div")
+          if (contentDOM) dom.appendChild(contentDOM)
           const key = nodeViewStore.nextKey()
           let selected = false
           let currentNode: TiptapNode = node
@@ -53,9 +58,10 @@ const withReactNodeViews = <
 
           nodeViewStore.add({
             key,
-            dom,
-            contentDOM: null,
+            dom: reactMount,
+            contentDOM,
             Component,
+            componentProps: {},
             props: {
               nodeAttrs: node.attrs,
               nodeType: node.type.name,
@@ -67,7 +73,7 @@ const withReactNodeViews = <
 
           return {
             dom,
-            contentDOM: null,
+            contentDOM,
             update(newNode: TiptapNode) {
               if (newNode.type.name !== currentNode.type.name) return false
               currentNode = newNode
@@ -81,6 +87,10 @@ const withReactNodeViews = <
             deselectNode() {
               selected = false
               writeProps()
+            },
+            ignoreMutation(mutation: { readonly target?: unknown }) {
+              return mutation.target instanceof Node
+                && reactMount.contains(mutation.target)
             },
             destroy() {
               nodeViewStore.remove(key)

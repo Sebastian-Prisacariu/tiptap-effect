@@ -17,10 +17,7 @@ export const SetContentCommand = defineEditorCommand({
   inputSchema: Schema.Struct({ content: Schema.Unknown }),
   outputSchema: Schema.Struct({ previousContent: Schema.Unknown }),
   apply: (chain, { content }) => chain.setContent(content as JSONContent),
-  reverseSetup: (state, _input) => {
-    const s = state as { doc: { toJSON: () => unknown } }
-    return { previousContent: s.doc.toJSON() }
-  },
+  reverseSetup: (state, _input) => ({ previousContent: state.doc.toJSON() }),
   applyReverse: (chain, _input, { previousContent }) =>
     chain.setContent(previousContent as JSONContent),
 })

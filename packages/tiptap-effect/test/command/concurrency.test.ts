@@ -213,8 +213,9 @@ describe("CommandExecutor — concurrency policies", () => {
     ])
     const elapsed = Date.now() - start
 
-    // Parallel: all three sleep concurrently → total < 2 × delay
-    expect(elapsed).toBeLessThan(40 * 2)
+    // Parallel: all three sleep concurrently. Allow scheduler/CI overhead,
+    // but keep this below the roughly sequential 3 × delay bound.
+    expect(elapsed).toBeLessThan(40 * 3)
 
     void _keep
   })

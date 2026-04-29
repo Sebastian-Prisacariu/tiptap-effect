@@ -12,10 +12,7 @@ export const InsertTextCommand = defineEditorCommand({
   inputSchema: Schema.Struct({ text: Schema.String }),
   outputSchema: Schema.Struct({ from: Schema.Number, length: Schema.Number }),
   apply: (chain, { text }) => chain.insertContent(text),
-  reverseSetup: (state, { text }) => {
-    const s = state as { selection: { from: number } }
-    return { from: s.selection.from, length: text.length }
-  },
+  reverseSetup: (state, { text }) => ({ from: state.selection.from, length: text.length }),
   applyReverse: (chain, _input, { from, length }) =>
     chain.deleteRange({ from, to: from + length }),
   capturesSelection: true,

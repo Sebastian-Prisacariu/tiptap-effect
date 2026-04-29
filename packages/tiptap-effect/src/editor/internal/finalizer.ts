@@ -3,8 +3,9 @@ import { CommandExecutor } from "../../command/command-executor"
 import { TransactionBus } from "../../runtime/internal/transaction-bus"
 import { EditorContext } from "./context"
 import { destroyEditorOnce } from "./destroy-editor"
+import type { NodeViewStore } from "./node-view-store"
 
-const installEditorFinalizer = () =>
+const installEditorFinalizer = (nodeViewStore: NodeViewStore) =>
   Effect.gen(function* () {
     const { id, editor } = yield* EditorContext
 
@@ -14,6 +15,7 @@ const installEditorFinalizer = () =>
         const executor = yield* CommandExecutor
 
         yield* executor.interruptAllForEditor(editor)
+        yield* Effect.sync(() => nodeViewStore.dispose())
         yield* Effect.sync(() => destroyEditorOnce(editor))
         yield* bus.dispose(id)
       }),

@@ -12,10 +12,7 @@ export const ClearContentCommand = defineEditorCommand({
   inputSchema: Schema.Void,
   outputSchema: Schema.Struct({ previousContent: Schema.Unknown }),
   apply: (chain, _input) => chain.clearContent(true),
-  reverseSetup: (state, _input) => {
-    const s = state as { doc: { toJSON: () => unknown } }
-    return { previousContent: s.doc.toJSON() }
-  },
+  reverseSetup: (state, _input) => ({ previousContent: state.doc.toJSON() }),
   applyReverse: (chain, _input, { previousContent }) =>
     chain.setContent(previousContent as JSONContent),
 })

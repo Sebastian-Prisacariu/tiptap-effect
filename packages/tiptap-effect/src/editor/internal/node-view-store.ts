@@ -1,5 +1,9 @@
 import type * as React from "react"
 
+const storesByEditorView = new WeakMap<object, NodeViewStore>()
+const constructionStoreStack: Array<NodeViewStore> = []
+const pendingEntriesByEditorView = new WeakMap<object, Array<NodeViewEntry>>()
+
 export interface NodeViewProps {
   readonly nodeAttrs: Record<string, unknown>
   readonly nodeType: string
@@ -16,12 +20,24 @@ export interface NodeViewEntry {
   readonly key: string
   readonly dom: HTMLElement
   readonly contentDOM: HTMLElement | null
-  readonly Component: React.FC
-  readonly props: NodeViewProps
+  readonly Component: React.FC<Record<string, unknown>>
+  readonly componentProps: Record<string, unknown>
+  readonly props: NodeViewProps | null
+}
+
+const shallowEqual = (
+  a: Readonly<Record<string, unknown>>,
+  b: Readonly<Record<string, unknown>>,
+): boolean => {
+  if (a === b) return true
+  const aKeys = Object.keys(a)
+  const bKeys = Object.keys(b)
+  if (aKeys.length !== bKeys.length) return false
+  return aKeys.every((key) => Object.is(a[key], b[key]))
 }
 
 const propsEqual = (a: NodeViewProps, b: NodeViewProps): boolean =>
-  a.nodeAttrs === b.nodeAttrs
+  shallowEqual(a.nodeAttrs, b.nodeAttrs)
   && a.nodeType === b.nodeType
   && a.getPos === b.getPos
   && a.selected === b.selected
@@ -30,16 +46,17 @@ const propsEqual = (a: NodeViewProps, b: NodeViewProps): boolean =>
 /**
  * Per-editor registry of active NodeViews. The Tiptap node-view callback
  * adds/updates/removes entries as PM creates and tears down NodeViews; the
- * React view subscribes via `useSyncExternalStore` and renders one Portal per
- * entry.
+ * React view subscribes via `useSyncExternalStore` and renders one child root
+ * per entry.
  */
 export class NodeViewStore {
   private entries = new Map<string, NodeViewEntry>()
+  private unmounts = new Map<string, () => void>()
   private listeners = new Set<() => void>()
   private nextId = 0
 
-  nextKey(): string {
-    return `nv-${++this.nextId}`
+  nextKey(prefix = "nv"): string {
+    return `${prefix}-${++this.nextId}`
   }
 
   add(entry: NodeViewEntry): void {
@@ -49,15 +66,32 @@ export class NodeViewStore {
 
   update(key: string, props: NodeViewProps): void {
     const existing = this.entries.get(key)
-    if (!existing) return
+    if (!existing || !existing.props) return
     if (propsEqual(existing.props, props)) return
     this.entries.set(key, { ...existing, props })
     this.notify()
   }
 
   remove(key: string): void {
+    this.unmount(key, { defer: true })
     this.entries.delete(key)
     this.notify()
+  }
+
+  setUnmount(key: string, unmount: () => void): void {
+    if (!this.entries.has(key)) {
+      unmount()
+      return
+    }
+    this.unmounts.set(key, unmount)
+  }
+
+  dispose(): void {
+    Array.from(this.unmounts.keys()).forEach((key) =>
+      this.unmount(key, { defer: false }),
+    )
+    this.entries.clear()
+    this.snapshotDirty = true
   }
 
   subscribe = (fn: () => void): (() => void) => {
@@ -82,4 +116,79 @@ export class NodeViewStore {
     this.snapshotDirty = true
     this.listeners.forEach((listener) => listener())
   }
+
+  private unmount(
+    key: string,
+    options: { readonly defer: boolean },
+  ): void {
+    const unmount = this.unmounts.get(key)
+    if (!unmount) return
+    this.unmounts.delete(key)
+    if (options.defer) queueMicrotask(unmount)
+    else unmount()
+  }
+}
+
+export const registerNodeViewStoreForEditorView = (
+  editorView: object,
+  store: NodeViewStore,
+): (() => void) => {
+  storesByEditorView.set(editorView, store)
+  const pending = pendingEntriesByEditorView.get(editorView)
+  if (pending) {
+    pendingEntriesByEditorView.delete(editorView)
+    pending.forEach((entry) => store.add(entry))
+  }
+  return () => {
+    if (storesByEditorView.get(editorView) === store) {
+      storesByEditorView.delete(editorView)
+    }
+  }
+}
+
+export const getNodeViewStoreForEditorView = (
+  editorView: object,
+): NodeViewStore | undefined =>
+  storesByEditorView.get(editorView)
+  ?? constructionStoreStack[constructionStoreStack.length - 1]
+
+export const withNodeViewStoreForEditorConstruction = <A>(
+  store: NodeViewStore,
+  f: () => A,
+): A => {
+  constructionStoreStack.push(store)
+  try {
+    return f()
+  } finally {
+    constructionStoreStack.pop()
+  }
+}
+
+export const addPendingNodeViewEntryForEditorView = (
+  editorView: object,
+  entry: NodeViewEntry,
+): void => {
+  const store = storesByEditorView.get(editorView)
+  if (store) {
+    store.add(entry)
+    return
+  }
+  const pending = pendingEntriesByEditorView.get(editorView)
+  if (pending) {
+    pending.push(entry)
+  } else {
+    pendingEntriesByEditorView.set(editorView, [entry])
+  }
+}
+
+export const removePendingNodeViewEntryForEditorView = (
+  editorView: object,
+  key: string,
+): void => {
+  const pending = pendingEntriesByEditorView.get(editorView)
+  if (!pending) return
+  const index = pending.findIndex((entry) => entry.key === key)
+  if (index === -1) return
+  pending.splice(index, 1)
+  if (pending.length === 0) pendingEntriesByEditorView.delete(editorView)
 }

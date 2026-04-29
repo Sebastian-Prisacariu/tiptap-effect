@@ -7,6 +7,7 @@ import {
   Commands,
   EditorId,
   EditorScope,
+  type EditorSpec,
   Marks,
   Nodes,
   TiptapView,
@@ -75,23 +76,27 @@ const PersistencePreview = () => {
   })
 
   if (doc === null) return <pre>No transaction yet.</pre>
-  if (Result.isFailure(doc)) return <pre>Document failed schema decode.</pre>
+  if (!Result.isSuccess(doc)) return <pre>Document failed schema decode.</pre>
   return <pre>{JSON.stringify(doc.value, null, 2)}</pre>
 }
 
 export const App = () => {
   const registry = React.useMemo(() => Registry.make(), [])
+  const spec = React.useMemo(
+    () => ({
+      id: editorId,
+      schema: lessonSchema,
+      defaultContent,
+      devSchemaCheck: true,
+    }) satisfies EditorSpec<Record<string, unknown>, Record<string, unknown>>,
+    [],
+  )
 
   React.useEffect(() => () => registry.dispose(), [registry])
 
   return (
     <RegistryContext.Provider value={registry}>
-      <EditorScope
-        id={editorId}
-        schema={lessonSchema}
-        defaultContent={defaultContent}
-        devSchemaCheck
-      >
+      <EditorScope id={editorId} spec={spec}>
         <main>
           <h1>tiptap-effect basic Vite example</h1>
           <Toolbar />

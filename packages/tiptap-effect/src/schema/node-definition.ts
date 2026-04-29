@@ -40,9 +40,9 @@ export interface NodeDefinition<
    * Render this node via a React component. The component reads node attrs
    * via `useNodeViewProps` and dispatches Commands via `useDispatch`.
    *
-   * v1 supports leaf nodes only — block nodes with editable content require
-   * `contentDOM` wiring that's deferred. Set `atom: true` on your node
-   * definition for leaf-style behaviour.
+   * Leaf nodes render as React-only islands. Non-leaf nodes get a separate
+   * ProseMirror-owned `contentDOM` beside the React mount, so editable child
+   * content stays under PM control.
    */
   readonly reactNodeView?: React.FC
 }

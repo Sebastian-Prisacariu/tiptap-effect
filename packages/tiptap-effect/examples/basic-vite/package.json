@@ -10,6 +10,7 @@
     "@effect-atom/atom": "latest",
     "@effect-atom/atom-react": "latest",
     "@tiptap/core": "latest",
+    "@tiptap/pm": "^3.22.5",
     "effect": "latest",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

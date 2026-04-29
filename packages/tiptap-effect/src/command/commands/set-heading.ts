@@ -9,19 +9,6 @@ type HeadingChain<Chain> = Chain & {
   readonly setParagraph: () => Chain
 }
 
-type HeadingState = {
-  readonly selection: {
-    readonly from: number
-    readonly to: number
-    readonly $from: {
-      readonly parent?: {
-        readonly type?: { readonly name?: string }
-        readonly attrs?: { readonly level?: number }
-      }
-    }
-  }
-}
-
 /**
  * Toggle the block at the current selection between a heading at the given
  * level and a paragraph. Tiptap's `toggleHeading` already implements this
@@ -47,13 +34,12 @@ export const SetHeadingCommand = defineEditorCommand({
   apply: (chain, { level }) =>
     (chain.focus() as HeadingChain<typeof chain>).toggleHeading({ level }),
   reverseSetup: (state, _input) => {
-    const s = state as HeadingState
-    const node = s.selection.$from?.parent
+    const node = state.selection.$from.parent
     return {
       previousType: node?.type?.name ?? "paragraph",
       previousLevel: node?.attrs?.level ?? null,
-      from: s.selection.from,
-      to: s.selection.to,
+      from: state.selection.from,
+      to: state.selection.to,
     }
   },
   applyReverse: (chain, _input, { previousType, previousLevel, from, to }) => {

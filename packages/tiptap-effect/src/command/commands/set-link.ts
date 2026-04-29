@@ -6,20 +6,6 @@ type LinkChain<Chain> = Chain & {
   readonly unsetLink: () => Chain
 }
 
-type MarkAtSelection = {
-  readonly type: { readonly name: string }
-  readonly attrs: { readonly href?: string }
-}
-
-type LinkState = {
-  readonly selection: {
-    readonly from: number
-    readonly to: number
-    readonly $from: { readonly marks?: () => ReadonlyArray<MarkAtSelection> }
-  }
-  readonly schema: { readonly marks: { readonly link?: unknown } }
-}
-
 /**
  * Set or clear a link mark over the current selection. `href: null` removes
  * the link. Wraps `@tiptap/extension-link`'s `setLink` / `unsetLink` chain
@@ -48,19 +34,18 @@ export const SetLinkCommand = defineEditorCommand({
     return c.setLink({ href })
   },
   reverseSetup: (state, _input) => {
-    const s = state as LinkState
     // Read the link mark's current attrs at the active range
-    const linkMarkType = s.schema.marks.link
+    const linkMarkType = state.schema.marks.link
     let previousHref: string | null = null
     if (linkMarkType) {
-      const marks = s.selection.$from.marks?.() ?? []
+      const marks = state.selection.$from.marks?.() ?? []
       const link = marks.find((m) => m.type.name === "link")
       previousHref = link?.attrs?.href ?? null
     }
     return {
       previousHref,
-      from: s.selection.from,
-      to: s.selection.to,
+      from: state.selection.from,
+      to: state.selection.to,
     }
   },
   applyReverse: (chain, _input, { previousHref, from, to }) => {

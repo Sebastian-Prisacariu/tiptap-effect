@@ -36,10 +36,12 @@ typed undo. React reads from this layer; it never owns the editor.
 import { Registry } from "@effect-atom/atom"
 import { RegistryContext } from "@effect-atom/atom-react"
 import { Effect, Schema } from "effect"
+import * as React from "react"
 import {
   Commands,
   EditorId,
   EditorScope,
+  type EditorSpec,
   Marks,
   Nodes,
   TiptapView,
@@ -71,6 +73,8 @@ const initialContent = {
   content: [{ type: "paragraph", content: [{ type: "text", text: "Hello" }] }],
 }
 
+const editorId = EditorId("lesson-editor")
+
 function Toolbar() {
   const dispatch = useDispatch()
   const history = useHistory()
@@ -98,15 +102,21 @@ function SelectionDebug() {
 }
 
 export function App() {
-  const registry = Registry.make()
+  const registry = React.useMemo(() => Registry.make(), [])
+  const spec = React.useMemo(
+    () => ({
+      id: editorId,
+      schema: lessonSchema,
+      defaultContent: initialContent,
+    }) satisfies EditorSpec<Record<string, unknown>, Record<string, unknown>>,
+    [],
+  )
+
+  React.useEffect(() => () => registry.dispose(), [registry])
 
   return (
     <RegistryContext.Provider value={registry}>
-      <EditorScope
-        id={EditorId("lesson-editor")}
-        schema={lessonSchema}
-        defaultContent={initialContent}
-      >
+      <EditorScope id={editorId} spec={spec}>
         <Toolbar />
         <TiptapView />
         <SelectionDebug />
@@ -146,6 +156,12 @@ Commands are the only supported mutation path. Each command owns an input
 schema, output schema, forward effect, and reverse behavior. Editor commands
 receive the current editor through the `CurrentEditor` service rather than
 through React props.
+
+Built-ins cover common toolbar actions and precise document patching:
+`InsertTextCommand`, `InsertContentAtCommand`, `ReplaceRangeCommand`,
+`DeleteRangeCommand`, `UpdateNodeAttrsCommand`, `SetContentCommand`,
+`ClearContentCommand`, `ToggleMarkCommand`, `SetHeadingCommand`,
+`SetLinkCommand`, `FocusCommand`, `BlurCommand`, and `MarkSavedCommand`.
 
 ```ts
 const InsertCalloutCommand = defineEditorCommand({
