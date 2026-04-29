@@ -1,3 +1,5 @@
+'use client';
+
 import type { Atom } from "@effect-atom/atom"
 import * as React from "react"
 import { makeEditorAtom, type EditorHandle, type EditorInitError, type EditorSpec } from "../editor"

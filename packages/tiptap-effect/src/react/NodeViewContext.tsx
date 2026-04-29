@@ -1,5 +1,5 @@
 import * as React from "react"
-import type { NodeViewProps } from "./internal/node-view-store"
+import type { NodeViewProps } from "../editor/internal/node-view-store"
 
 export const NodeViewContext = React.createContext<NodeViewProps | null>(null)
 
@@ -9,13 +9,16 @@ export const NodeViewContext = React.createContext<NodeViewProps | null>(null)
  *
  * Returns the typed `attrs` (cast to the consumer's expected shape), the PM
  * `nodeType` name, a `getPos()` function (returns the current position or
- * `undefined` if the node was removed), and a `selected` boolean.
+ * `undefined` if the node was removed), a `selected` boolean (true when the
+ * NodeView is the active node selection), and `unsafe.node` — the raw PM
+ * Node — as an escape hatch for node-typed operations not covered by attrs.
  */
 export const useNodeViewProps = <Attrs = Record<string, unknown>,>(): {
   readonly attrs: Attrs
   readonly nodeType: string
   readonly getPos: () => number | undefined
   readonly selected: boolean
+  readonly unsafe: { readonly node: unknown }
 } => {
   const ctx = React.useContext(NodeViewContext)
   if (!ctx) {
@@ -26,5 +29,6 @@ export const useNodeViewProps = <Attrs = Record<string, unknown>,>(): {
     nodeType: ctx.nodeType,
     getPos: ctx.getPos,
     selected: ctx.selected,
+    unsafe: { node: ctx.unsafeNode },
   }
 }

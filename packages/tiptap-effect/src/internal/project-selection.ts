@@ -1,5 +1,10 @@
-import { AllSelection, NodeSelection, type EditorState, type Selection } from "@tiptap/pm/state"
-import type { SelectionInfo } from "../../schema/selection"
+import {
+  AllSelection,
+  NodeSelection,
+  type EditorState,
+  type Selection,
+} from "@tiptap/pm/state"
+import type { SelectionInfo } from "../schema/selection"
 
 /**
  * Project a ProseMirror EditorState's selection into the public, Schema-typed

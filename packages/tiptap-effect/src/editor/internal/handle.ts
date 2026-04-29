@@ -1,7 +1,7 @@
 import type { Editor as TiptapEditor } from "@tiptap/core"
 import { Effect } from "effect"
-import { NodeViewStore } from "../../react/internal/node-view-store"
 import { EditorContext } from "./context"
+import { NodeViewStore } from "./node-view-store"
 
 interface EditorHandle {
   readonly mount: (el: HTMLElement | null) => void

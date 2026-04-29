@@ -9,7 +9,7 @@ import {
   ParagraphNode,
   TextNode,
 } from "../src/schema/nodes"
-import { isActiveAtom, selectionAtom } from "tiptap-effect/editor"
+import { focusAtom, isActiveAtom, selectionAtom } from "tiptap-effect/editor"
 import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "./helpers/atom"
 
@@ -85,5 +85,32 @@ describe("slices", () => {
 
     const value = registry.get(bold)
     expect(value).toBe(false)
+  })
+
+  it("focusAtom flips to true on focus and back to false on blur", async () => {
+    const id = EditorId("ed-focus-1")
+    const editorAtom = makeEditorAtom({
+      id,
+      schema: lessonSchema,
+      defaultContent: validDoc,
+    })
+    const focus = focusAtom(id)
+
+    const _keepEditor = registry.subscribe(editorAtom, () => {})
+    const _keepFocus = registry.subscribe(focus, () => {})
+    const editorHandle = await waitForAtom(registry, editorAtom)
+    const editor = editorHandle._internal.editor as unknown as {
+      emit: (event: string, payload: unknown) => void
+    }
+
+    expect(registry.get(focus)).toBe(false)
+
+    editor.emit("focus", { editor: editorHandle._internal.editor, event: null })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(registry.get(focus)).toBe(true)
+
+    editor.emit("blur", { editor: editorHandle._internal.editor, event: null })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(registry.get(focus)).toBe(false)
   })
 })

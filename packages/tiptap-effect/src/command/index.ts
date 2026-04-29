@@ -14,10 +14,12 @@ export {
   type CoalescePair,
 } from "./command"
 export { CurrentEditor } from "./internal/current-editor"
+export { TransactionalRollbackError } from "./internal/transactional-rollback"
 export {
   CommandExecutor,
   CommandExecutorLive,
   CommandBusyError,
+  ReplayDivergenceError,
   type NotReversibleAttempt,
   type CommandFailed,
 } from "./command-executor"

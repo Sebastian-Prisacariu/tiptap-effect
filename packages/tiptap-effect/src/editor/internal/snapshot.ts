@@ -7,19 +7,27 @@ type SnapshotTransaction = {
   readonly selectionSet: boolean
 }
 
+type SnapshotOptions = {
+  readonly sourceMeta?: ReadonlyArray<string>
+}
+
 const makeSnapshot = (): Effect.Effect<
-  (transaction: SnapshotTransaction, state: unknown) => TransactionSnapshot,
+  (
+    transaction: SnapshotTransaction,
+    state: unknown,
+    options?: SnapshotOptions,
+  ) => TransactionSnapshot,
   never,
   EditorContext
 > =>
-  Effect.map(EditorContext, ({ id }) => (transaction, state) => ({
+  Effect.map(EditorContext, ({ id }) => (transaction, state, options) => ({
     editorId: id,
     docChanged: transaction.docChanged,
     selectionSet: transaction.selectionSet,
     stateAfter: state,
     transaction,
-    sourceMeta: [],
+    sourceMeta: options?.sourceMeta ?? [],
     at: Date.now(),
   }))
 
-export { makeSnapshot }
+export { makeSnapshot, type SnapshotTransaction, type SnapshotOptions }

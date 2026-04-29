@@ -4,13 +4,14 @@ import type { Step } from "@tiptap/pm/transform"
 import { type Command, CommandValidationError, NotReversibleError, Reverse } from "./command"
 import { CommandHistory, type CommandRecord, getReverseFn, reverseKind } from "./command-history"
 import { CurrentEditor } from "./internal/current-editor"
-import { projectSelection } from "./internal/project-selection"
 import {
   clearContext,
   installDispatchWrapper,
   replayInversions,
   setContext,
+  type TransactionalRollbackError,
 } from "./internal/transactional-rollback"
+import { projectSelection } from "../internal/project-selection"
 import type { SelectionInfo } from "../schema/selection"
 import type { EditorId } from "../types"
 import { getEditorId } from "../internal/editor-ids"
@@ -23,6 +24,21 @@ export interface NotReversibleAttempt {
   readonly op: string
   readonly at: number
 }
+
+/**
+ * Raised when `CommandExecutor.replay(record, { strict: true })` re-runs a
+ * Command and the output diverges from the stored output.
+ *
+ * Carries both output values for structured diffing — useful when replaying
+ * agent-recorded sessions or migrating ops between code versions.
+ */
+export class ReplayDivergenceError extends Data.TaggedError(
+  "ReplayDivergenceError",
+)<{
+  readonly op: string
+  readonly expected: unknown
+  readonly actual: unknown
+}> {}
 
 /**
  * Raised when a Command with `concurrencyPolicy: "block-while-pending"` (the
@@ -71,8 +87,19 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
       const commandFailedEvents = yield* PubSub.unbounded<CommandFailed>()
       const pendingOps = yield* SubscriptionRef.make<ReadonlyMap<EditorId, ReadonlySet<string>>>(new Map())
       const emptyPendingOps: ReadonlySet<string> = new Set()
-      const perOpFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>()
-      const perOpSemaphores = new Map<string, Effect.Semaphore>()
+      const perOpFibers = yield* Ref.make<ReadonlyMap<string, Fiber.RuntimeFiber<unknown, unknown>>>(
+        new Map(),
+      )
+      // Per-op semaphore registry. Held in a Ref so concurrent dispatches
+      // can resolve their semaphore in one atomic check-and-create
+      // (Ref.modify), avoiding the read-then-write race the previous plain
+      // `Map` had under parallel queued dispatches.
+      const semaphores = yield* Ref.make<ReadonlyMap<string, Effect.Semaphore>>(
+        new Map(),
+      )
+      const transactionalSemaphores = yield* Ref.make<
+        ReadonlyMap<EditorId, Effect.Semaphore>
+      >(new Map())
       // WeakMap: per-editor live fiber set, used by editor-disposal to
       // interrupt all in-flight Commands for the editor.
       const perEditorFibers = new WeakMap<
@@ -82,15 +109,21 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
 
       const captureSelection = (
         editor: TiptapEditor,
-        cmd: { readonly capturesSelection?: boolean },
-      ): SelectionInfo | null => {
-        if (!cmd.capturesSelection) return null
-        try {
-          return projectSelection(editor.state)
-        } catch {
-          return null
-        }
-      }
+        cmd: { readonly op: string; readonly capturesSelection?: boolean },
+      ): Effect.Effect<SelectionInfo | null> =>
+        cmd.capturesSelection
+          ? Effect.try({
+              try: () => projectSelection(editor.state),
+              catch: (cause) => cause,
+            }).pipe(
+              Effect.catchAll((cause) =>
+                Effect.logWarning(
+                  "[tiptap-effect/commands] failed to capture selection",
+                  { op: cmd.op, cause },
+                ).pipe(Effect.as(null)),
+              ),
+            )
+          : Effect.succeed(null)
 
       const restoreSelection = (
         editor: TiptapEditor,
@@ -113,6 +146,28 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
           return next
         })
 
+      /**
+       * Atomic check-and-mark for the `block-while-pending` policy. Returns
+       * `true` if `(editorId, op)` was newly reserved (the caller should
+       * proceed); `false` if there was already a pending dispatch (the
+       * caller should fail with `CommandBusyError`). Replaces the previous
+       * read-then-write pattern that had a race window between the check
+       * and the mark.
+       */
+      const reserveIfFree = (
+        editorId: EditorId,
+        op: string,
+      ): Effect.Effect<boolean> =>
+        SubscriptionRef.modify(pendingOps, (all): [boolean, ReadonlyMap<EditorId, ReadonlySet<string>>] => {
+          const set = all.get(editorId) ?? emptyPendingOps
+          if (set.has(op)) return [false, all]
+          const next = new Map(all)
+          const nextSet = new Set(set)
+          nextSet.add(op)
+          next.set(editorId, nextSet)
+          return [true, next]
+        })
+
       const unmarkPending = (editorId: EditorId, op: string) =>
         SubscriptionRef.update(pendingOps, (all) => {
           const current = all.get(editorId)
@@ -125,14 +180,47 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
           return next
         })
 
-      const getOrCreateSemaphore = (key: string): Effect.Effect<Effect.Semaphore> =>
+      const getOrCreateSemaphore = (
+        key: string,
+      ): Effect.Effect<Effect.Semaphore> =>
         Effect.gen(function* () {
-          let sem = perOpSemaphores.get(key)
-          if (!sem) {
-            sem = yield* Effect.makeSemaphore(1)
-            perOpSemaphores.set(key, sem)
-          }
-          return sem
+          // Optimistic fast path — semaphore already exists.
+          const current = yield* Ref.get(semaphores)
+          const existing = current.get(key)
+          if (existing) return existing
+          // Create a fresh semaphore and atomically install it. If a
+          // concurrent fiber raced and installed one first, throw away
+          // ours and use theirs — this guarantees a single semaphore per
+          // key regardless of dispatch parallelism.
+          const fresh = yield* Effect.makeSemaphore(1)
+          return yield* Ref.modify(semaphores, (m) => {
+            const winner = m.get(key) ?? fresh
+            if (winner === fresh) {
+              const next = new Map(m)
+              next.set(key, fresh)
+              return [fresh, next]
+            }
+            return [winner, m]
+          })
+        })
+
+      const getOrCreateTransactionalSemaphore = (
+        editorId: EditorId,
+      ): Effect.Effect<Effect.Semaphore> =>
+        Effect.gen(function* () {
+          const current = yield* Ref.get(transactionalSemaphores)
+          const existing = current.get(editorId)
+          if (existing) return existing
+          const fresh = yield* Effect.makeSemaphore(1)
+          return yield* Ref.modify(transactionalSemaphores, (m) => {
+            const winner = m.get(editorId) ?? fresh
+            if (winner === fresh) {
+              const next = new Map(m)
+              next.set(editorId, fresh)
+              return [fresh, next]
+            }
+            return [winner, m]
+          })
         })
 
       const decodeInput = <Op extends string, In>(
@@ -188,6 +276,18 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
                 )
             : cmd.reverse
 
+        const outputEquals = (() => {
+          const equals = Schema.equivalence(cmd.outputSchema)
+          return (left: unknown, right: unknown): boolean => {
+            const leftDecoded = Schema.decodeUnknownEither(cmd.outputSchema)(left)
+            const rightDecoded = Schema.decodeUnknownEither(cmd.outputSchema)(right)
+            if (Either.isLeft(leftDecoded) || Either.isLeft(rightDecoded)) {
+              return false
+            }
+            return equals(leftDecoded.right, rightDecoded.right)
+          }
+        })()
+
         return {
           editorId,
           op: cmd.op,
@@ -198,6 +298,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
           reverseEffect,
           selection,
           coalesceKey,
+          outputEquals,
           coalesce: cmd.coalesce
             ? (prev, next) => {
                 const prevInput = Schema.decodeUnknownEither(cmd.inputSchema)(prev.input)
@@ -241,7 +342,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
       ): Effect.Effect<Out, Err | CommandValidationError, Exclude<R, CurrentEditor>> =>
         Effect.gen(function* () {
           const validated = yield* decodeInput(cmd, input)
-          const selection = captureSelection(editor, cmd)
+          const selection = yield* captureSelection(editor, cmd)
           const rawOutput = yield* cmd.forward(validated).pipe(
             Effect.provideService(CurrentEditor, editor),
           )
@@ -272,20 +373,31 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         cmd: Command<Op, In, Out, Err, R>,
         input: In,
         opts: { trackOp?: boolean } = {},
-      ): Effect.Effect<Out, Err | CommandValidationError, Exclude<R, CurrentEditor>> =>
-        (Effect.gen(function* () {
+      ): Effect.Effect<
+        Out,
+        Err | CommandValidationError | TransactionalRollbackError,
+        Exclude<R, CurrentEditor>
+      > => {
+        const isTransactional = cmd.transactional === true
+        const body = Effect.gen(function* () {
           const op = cmd.op
-          const isTransactional = !!(cmd as { transactional?: boolean }).transactional
           const cmdId = nextCmdId(op)
           // inversions array shared with the dispatch wrapper (mutable)
           const inversions: Array<Step> = []
 
           if (isTransactional) {
-            installDispatchWrapper(editor)
+            yield* installDispatchWrapper(editor)
             setContext(editor, { cmdId, inversions })
           }
 
-          yield* markPending(editorId, op)
+          // For `block-while-pending` cmds the caller already reserved via
+          // reserveIfFree, so we'd double-mark. Detect by checking if op
+          // is already pending and only mark when it isn't.
+          // Other policies still need an explicit mark.
+          const policy = cmd.concurrencyPolicy
+          if (policy !== "block-while-pending") {
+            yield* markPending(editorId, op)
+          }
 
           const inner = realRun(editorId, editor, cmd, input).pipe(
             Effect.tapErrorCause((cause) =>
@@ -308,35 +420,59 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
           const erased: Fiber.RuntimeFiber<unknown, unknown> = fiber
           editorSet.add(erased)
           const key = commandKey(editorId, op)
-          if (opts.trackOp) perOpFibers.set(key, erased)
+          if (opts.trackOp) {
+            yield* Ref.update(perOpFibers, (all) => {
+              const next = new Map(all)
+              next.set(key, erased)
+              return next
+            })
+          }
 
           return yield* Fiber.join(fiber).pipe(
             Effect.tapErrorCause(() =>
-              Effect.sync(() => {
-                if (isTransactional && inversions.length > 0) {
-                  replayInversions(editor, inversions)
-                }
-              }),
+              isTransactional
+                ? replayInversions(editor, inversions)
+                : Effect.void,
             ),
             Effect.ensuring(
               Effect.gen(function* () {
                 editorSet!.delete(erased)
                 if (editorSet!.size === 0) perEditorFibers.delete(editor)
-                if (opts.trackOp && perOpFibers.get(key) === erased) {
-                  perOpFibers.delete(key)
+                if (opts.trackOp) {
+                  yield* Ref.update(perOpFibers, (all) => {
+                    if (all.get(key) !== erased) return all
+                    const next = new Map(all)
+                    next.delete(key)
+                    return next
+                  })
                 }
-                if (isTransactional) clearContext(editor)
+                if (isTransactional) clearContext(editor, cmdId)
                 yield* unmarkPending(editorId, op)
               }),
             ),
           )
-        }))
+        })
+
+        return isTransactional
+          ? Effect.flatMap(getOrCreateTransactionalSemaphore(editorId), (sem) =>
+              sem.withPermits(1)(body),
+            )
+          : body
+      }
 
       const run = <Op extends string, In, Out, Err, R>(
         editor: TiptapEditor,
         cmd: Command<Op, In, Out, Err, R>,
         input: In,
-      ): Effect.Effect<Out, Err | NotReversibleError | CommandBusyError | CommandValidationError, Exclude<R, CurrentEditor>> => {
+      ): Effect.Effect<
+        Out,
+        | Err
+        | NotReversibleError
+        | CommandBusyError
+        | CommandValidationError
+        | TransactionalRollbackError,
+        Exclude<R, CurrentEditor>
+      > => {
         const editorId = getEditorId(editor)
         const op = cmd.op
         const policy = cmd.concurrencyPolicy ?? "block-while-pending"
@@ -345,15 +481,18 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         switch (policy) {
           case "block-while-pending": {
             return Effect.gen(function* () {
-              const all = yield* SubscriptionRef.get(pendingOps)
-              const set = all.get(editorId) ?? emptyPendingOps
-              if (set.has(op)) {
+              const reserved = yield* reserveIfFree(editorId, op)
+              if (!reserved) {
                 return yield* Effect.fail(new CommandBusyError({ op }))
               }
               return yield* tracked(editorId, editor, cmd, input)
             }) as Effect.Effect<
               Out,
-              Err | NotReversibleError | CommandBusyError | CommandValidationError,
+              | Err
+              | NotReversibleError
+              | CommandBusyError
+              | CommandValidationError
+              | TransactionalRollbackError,
               Exclude<R, CurrentEditor>
             >
           }
@@ -363,28 +502,45 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
               return yield* sem.withPermits(1)(tracked(editorId, editor, cmd, input))
             }) as Effect.Effect<
               Out,
-              Err | NotReversibleError | CommandBusyError | CommandValidationError,
+              | Err
+              | NotReversibleError
+              | CommandBusyError
+              | CommandValidationError
+              | TransactionalRollbackError,
               Exclude<R, CurrentEditor>
             >
           }
           case "interrupt-and-replace": {
             return Effect.gen(function* () {
-              const existing = perOpFibers.get(key)
+              const existing = yield* Ref.modify(perOpFibers, (all) => {
+                const existing = all.get(key)
+                if (!existing) return [undefined, all]
+                const next = new Map(all)
+                next.delete(key)
+                return [existing, next]
+              })
               if (existing) {
                 yield* Fiber.interrupt(existing)
-                perOpFibers.delete(key)
               }
               return yield* tracked(editorId, editor, cmd, input, { trackOp: true })
             }) as Effect.Effect<
               Out,
-              Err | NotReversibleError | CommandBusyError | CommandValidationError,
+              | Err
+              | NotReversibleError
+              | CommandBusyError
+              | CommandValidationError
+              | TransactionalRollbackError,
               Exclude<R, CurrentEditor>
             >
           }
           case "allow-concurrent": {
             return tracked(editorId, editor, cmd, input) as Effect.Effect<
               Out,
-              Err | NotReversibleError | CommandBusyError | CommandValidationError,
+              | Err
+              | NotReversibleError
+              | CommandBusyError
+              | CommandValidationError
+              | TransactionalRollbackError,
               Exclude<R, CurrentEditor>
             >
           }
@@ -449,7 +605,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
             yield* PubSub.publish(notReversibleEvents, { editorId, op: last.op, at: now })
             return yield* Effect.fail(new NotReversibleError({ op: last.op }))
           }
-          restoreSelection(editor, last.selection)
+          yield* Effect.sync(() => restoreSelection(editor, last.selection))
           const reverseFn = getReverseFn(last.reverseEffect)
           if (reverseFn) {
             yield* reverseFn(editor, last.output)
@@ -478,6 +634,38 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
             at: Date.now(),
           })
           return next
+        })
+
+      /**
+       * Re-run a stored Command record's `forwardEffect` and return its
+       * output. Does NOT push a new history entry. In strict mode,
+       * compares the re-run's output against the stored output via the
+       * Command's `outputSchema` equivalence and yields `ReplayDivergenceError`
+       * on mismatch.
+       *
+       * Useful for replaying agent-recorded sessions, golden-master
+       * regression tests, and op-log migrations.
+       */
+      const replay = (
+        editor: TiptapEditor,
+        record: CommandRecord,
+        opts: { readonly strict?: boolean } = {},
+      ): Effect.Effect<unknown, unknown> =>
+        Effect.gen(function* () {
+          const actual = yield* record.forwardEffect(editor)
+          if (opts.strict !== true) return actual
+          const outputEquals = record.outputEquals
+          if (outputEquals === undefined) return actual
+          if (!outputEquals(record.output, actual)) {
+            return yield* Effect.fail(
+              new ReplayDivergenceError({
+                op: record.op,
+                expected: record.output,
+                actual,
+              }),
+            )
+          }
+          return actual
         })
 
       const dryRun = <Op extends string, In, Out, Err, R>(
@@ -514,6 +702,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         undo,
         redo,
         dryRun,
+        replay,
         isPending,
         pendingChanges,
         interruptAllForEditor,

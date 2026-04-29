@@ -108,14 +108,17 @@ const buildTiptapNode = <Name extends string, Attrs extends Record<string, unkno
   if (def.renderHTML !== undefined) config["renderHTML"] = def.renderHTML
   if (def.addCommands !== undefined) config["addCommands"] = def.addCommands
 
-  // Default parseHTML: tag matching the node name
-  if (config["parseHTML"] === undefined) {
-    config["parseHTML"] = () => [{ tag: def.name }]
-  }
-  // Default renderHTML: <name {...attrs}>{children}</name>
-  if (config["renderHTML"] === undefined) {
-    config["renderHTML"] = ({ HTMLAttributes }: { HTMLAttributes: Record<string, unknown> }) =>
-      [def.name, HTMLAttributes, 0]
+  // The PM-builtin "text" node is a leaf — PM's DOMSerializer handles it
+  // specially. Providing parseHTML/renderHTML would either be ignored or
+  // (worse) introduce a content-hole into a leaf spec, which PM rejects.
+  if (def.name !== "text") {
+    if (config["parseHTML"] === undefined) {
+      config["parseHTML"] = () => [{ tag: def.name }]
+    }
+    if (config["renderHTML"] === undefined) {
+      config["renderHTML"] = ({ HTMLAttributes }: { HTMLAttributes: Record<string, unknown> }) =>
+        [def.name, HTMLAttributes, 0]
+    }
   }
 
   return TiptapNodeExt.create(config)

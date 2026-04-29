@@ -1,9 +1,16 @@
 import { Atom, Result } from "@effect-atom/atom"
-import { Effect, Stream } from "effect"
-import { projectSelection } from "../command/internal/project-selection"
+import { Effect, Either, ParseResult, Stream } from "effect"
 import { editorRuntime } from "../runtime"
 import { TransactionBus } from "../runtime/internal/transaction-bus"
+import type { EditorSchema } from "../schema/define"
 import type { EditorId, TransactionSnapshot } from "../types"
+import {
+  type DecodedDocument,
+  decodeDocumentFromState,
+  type DocumentJsonError,
+  documentHtmlFromState,
+} from "./internal/document-validation"
+import { projectSelection } from "../internal/project-selection"
 
 /**
  * Per-editor atom that mirrors the latest TransactionSnapshot pushed to the
@@ -115,4 +122,58 @@ export const focusAtom = (editorId: EditorId) =>
     const snap = unwrapSnap(r)
     if (!snap) return false
     return snap.sourceMeta.includes("focus")
+  })
+
+/**
+ * The current doc as a typed `NodeJSON`, decoded against `schema.Document`.
+ *
+ * Returns `null` until the first transaction emits, then `Either.right(doc)`
+ * on successful schema decode and `Either.left(parseError)` on failure.
+ *
+ * Lazy: `Schema.decodeUnknown` is not invoked until a subscriber reads this
+ * atom — `Atom.map` does not run its projection unless someone observes it.
+ *
+ * Equality-checked through `Atom.map`'s built-in equivalence, so identical
+ * doc projections do not notify subscribers.
+ */
+export const docAtom = <
+  N extends Record<string, unknown>,
+  M extends Record<string, unknown>,
+>(
+  editorId: EditorId,
+  schema: EditorSchema<N, M>,
+) =>
+  Atom.map(transactionBusAtom(editorId), (
+    r,
+  ): Either.Either<
+    DecodedDocument<N, M>,
+    ParseResult.ParseError | DocumentJsonError
+  > | null => {
+    const snap = unwrapSnap(r)
+    if (!snap) return null
+    const decoded = decodeDocumentFromState(schema, snap.stateAfter)
+    if (Either.isLeft(decoded)) {
+      return Either.left(decoded.left)
+    }
+    return Either.right(decoded.right)
+  })
+
+/**
+ * Current HTML rendering of the doc via static serialization.
+ *
+ * Returns the empty string until the first transaction emits or when the
+ * snapshot cannot be decoded against the provided schema.
+ */
+export const htmlAtom = <
+  N extends Record<string, unknown>,
+  M extends Record<string, unknown>,
+>(
+  editorId: EditorId,
+  schema: EditorSchema<N, M>,
+) =>
+  Atom.map(transactionBusAtom(editorId), (r) => {
+    const snap = unwrapSnap(r)
+    if (!snap) return ""
+    const html = documentHtmlFromState(schema, snap.stateAfter)
+    return Either.isRight(html) ? html.right : ""
   })

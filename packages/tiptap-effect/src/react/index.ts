@@ -17,4 +17,4 @@ export {
   useRawEditor,
 } from "./hooks"
 export { NodeViewContext, useNodeViewProps } from "./NodeViewContext"
-export type { NodeViewProps } from "./internal/node-view-store"
+export type { NodeViewProps } from "../editor/internal/node-view-store"

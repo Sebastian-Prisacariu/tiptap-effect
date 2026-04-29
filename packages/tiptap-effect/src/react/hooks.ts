@@ -3,19 +3,19 @@ import { type Atom, Registry } from "@effect-atom/atom"
 import type { Editor as TiptapEditor } from "@tiptap/core"
 import { Data, Effect, Exit, Stream } from "effect"
 import * as React from "react"
-import type {
-  CommandValidationError,
-  EditorRunnableCommand,
-  NotReversibleError,
-} from "../command"
 import {
   CommandBusyError,
   CommandExecutor,
   type CommandFailed,
-} from "../command/command-executor"
-import type { CommandRecord } from "../command/command-history"
-import { futureRecordsAtom, pastRecordsAtom } from "../command/internal/history-atoms"
-import { commandPendingAtom } from "../command/internal/pending-atoms"
+  type CommandRecord,
+  commandPendingAtom,
+  futureRecordsAtom,
+  pastRecordsAtom,
+  type CommandValidationError,
+  type EditorRunnableCommand,
+  type NotReversibleError,
+  type TransactionalRollbackError,
+} from "../command"
 import { editorRuntime } from "../runtime"
 import { useEditorScope } from "./EditorScope"
 import type { EditorId } from "../types"
@@ -29,6 +29,7 @@ type DispatchError<Err> =
   | CommandValidationError
   | CommandBusyError
   | NotReversibleError
+  | TransactionalRollbackError
   | DispatchNotReadyError
 
 /**
@@ -37,13 +38,34 @@ type DispatchError<Err> =
  *
  * Re-renders only when the slice's projected value actually changes
  * (slice atoms are equality-checked).
+ *
+ * Pass `{ debounceMs }` to coalesce rapid changes — the hook still subscribes
+ * to every emission but only commits the latest value to the consumer once
+ * the window settles. Useful for `docAtom` against persistence side effects:
+ * typing 10 characters inside a 1500ms window fires the consumer once.
  */
-export const useEditorSlice = <T,>(
+export function useEditorSlice<T>(factory: (id: EditorId) => Atom.Atom<T>): T
+export function useEditorSlice<T>(
   factory: (id: EditorId) => Atom.Atom<T>,
-): T => {
+  options: { readonly debounceMs: number },
+): T
+export function useEditorSlice<T>(
+  factory: (id: EditorId) => Atom.Atom<T>,
+  options?: { readonly debounceMs?: number },
+): T {
   const { id } = useEditorScope()
   const atom = factory(id)
-  return useAtomValue(atom)
+  const live = useAtomValue(atom)
+  const [debounced, setDebounced] = React.useState<T>(live)
+  const debounceMs = options?.debounceMs
+
+  React.useEffect(() => {
+    if (debounceMs === undefined) return
+    const timer = setTimeout(() => setDebounced(live), debounceMs)
+    return () => clearTimeout(timer)
+  }, [live, debounceMs])
+
+  return debounceMs === undefined ? live : debounced
 }
 
 /**

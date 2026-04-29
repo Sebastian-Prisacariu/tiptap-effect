@@ -26,6 +26,7 @@ export * as Marks from "./schema/marks/index"
 export {
   makeEditorAtom,
   EditorInitError,
+  SchemaCollisionError,
   type EditorSpec,
   type EditorHandle,
 } from "./editor"
@@ -51,9 +52,11 @@ export {
   type ReverseKind,
   type ConcurrencyPolicy,
   CurrentEditor,
+  TransactionalRollbackError,
   CommandExecutor,
   CommandExecutorLive,
   CommandBusyError,
+  ReplayDivergenceError,
   type NotReversibleAttempt,
   type CommandFailed,
   CommandHistory,
@@ -80,7 +83,12 @@ export {
   plainTextAtom,
   focusAtom,
   transactionBusAtom,
+  docAtom,
+  htmlAtom,
 } from "./editor"
+
+// Static rendering — re-exported from @tiptap/core for SSR / non-editable views
+export { generateHTML } from "@tiptap/core"
 
 // Dirty tracking atoms
 export { dirtyAtom, lastSavedAtom } from "./dirty"

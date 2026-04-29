@@ -1,13 +1,15 @@
 import type { Extensions } from "@tiptap/core"
 import type { EditorSchema } from "../../schema/define"
-import { NodeViewStore } from "../../react/internal/node-view-store"
+import { NodeViewStore } from "./node-view-store"
 import type { EditorSchemaMarks, EditorSchemaNodes } from "./types"
 
+interface TiptapNode {
+  readonly type: { readonly name: string }
+  readonly attrs: Record<string, unknown>
+}
+
 interface TiptapNodeViewInput {
-  readonly node: {
-    readonly type: { readonly name: string }
-    readonly attrs: Record<string, unknown>
-  }
+  readonly node: TiptapNode
   readonly getPos: () => number | undefined
   readonly view: unknown
   readonly decorations: unknown
@@ -36,6 +38,18 @@ const withReactNodeViews = <
         return ({ node, getPos }: TiptapNodeViewInput) => {
           const dom = document.createElement("div")
           const key = nodeViewStore.nextKey()
+          let selected = false
+          let currentNode: TiptapNode = node
+
+          const writeProps = () => {
+            nodeViewStore.update(key, {
+              nodeAttrs: currentNode.attrs,
+              nodeType: currentNode.type.name,
+              getPos,
+              selected,
+              unsafeNode: currentNode,
+            })
+          }
 
           nodeViewStore.add({
             key,
@@ -46,21 +60,27 @@ const withReactNodeViews = <
               nodeAttrs: node.attrs,
               nodeType: node.type.name,
               getPos,
-              selected: false,
+              selected,
+              unsafeNode: node,
             },
           })
 
           return {
             dom,
             contentDOM: null,
-            update(newNode: TiptapNodeViewInput["node"]) {
-              nodeViewStore.update(key, {
-                nodeAttrs: newNode.attrs,
-                nodeType: newNode.type.name,
-                getPos,
-                selected: false,
-              })
+            update(newNode: TiptapNode) {
+              if (newNode.type.name !== currentNode.type.name) return false
+              currentNode = newNode
+              writeProps()
               return true
+            },
+            selectNode() {
+              selected = true
+              writeProps()
+            },
+            deselectNode() {
+              selected = false
+              writeProps()
             },
             destroy() {
               nodeViewStore.remove(key)

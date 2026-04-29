@@ -5,6 +5,11 @@ export interface NodeViewProps {
   readonly nodeType: string
   readonly getPos: () => number | undefined
   readonly selected: boolean
+  /**
+   * Raw PM Node — escape hatch for node-typed operations not covered by
+   * `attrs`. Don't mutate; use a Command for any change.
+   */
+  readonly unsafeNode: unknown
 }
 
 export interface NodeViewEntry {
@@ -15,11 +20,18 @@ export interface NodeViewEntry {
   readonly props: NodeViewProps
 }
 
+const propsEqual = (a: NodeViewProps, b: NodeViewProps): boolean =>
+  a.nodeAttrs === b.nodeAttrs
+  && a.nodeType === b.nodeType
+  && a.getPos === b.getPos
+  && a.selected === b.selected
+  && a.unsafeNode === b.unsafeNode
+
 /**
  * Per-editor registry of active NodeViews. The Tiptap node-view callback
  * adds/updates/removes entries as PM creates and tears down NodeViews; the
- * `<TiptapView />` component subscribes via `useSyncExternalStore` and
- * renders one React Portal per entry.
+ * React view subscribes via `useSyncExternalStore` and renders one Portal per
+ * entry.
  */
 export class NodeViewStore {
   private entries = new Map<string, NodeViewEntry>()
@@ -38,6 +50,7 @@ export class NodeViewStore {
   update(key: string, props: NodeViewProps): void {
     const existing = this.entries.get(key)
     if (!existing) return
+    if (propsEqual(existing.props, props)) return
     this.entries.set(key, { ...existing, props })
     this.notify()
   }
@@ -54,8 +67,6 @@ export class NodeViewStore {
     }
   }
 
-  // Snapshot is reference-stable until a mutation; useSyncExternalStore
-  // requires this for correctness.
   private snapshot: ReadonlyArray<NodeViewEntry> = []
   private snapshotDirty = true
 
@@ -69,6 +80,6 @@ export class NodeViewStore {
 
   private notify(): void {
     this.snapshotDirty = true
-    this.listeners.forEach((l) => l())
+    this.listeners.forEach((listener) => listener())
   }
 }

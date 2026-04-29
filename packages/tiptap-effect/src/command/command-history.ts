@@ -43,6 +43,13 @@ export interface CommandRecord {
     prev: CoalescePair<unknown, unknown>,
     next: CoalescePair<unknown, unknown>,
   ) => CommandRecord | null
+  /**
+   * Compare two output values through the originating Command's
+   * `outputSchema`. Used by `CommandExecutor.replay` in strict mode so
+   * schema-level equivalence, not ad-hoc structural comparison, defines
+   * replay divergence.
+   */
+  readonly outputEquals?: (left: unknown, right: unknown) => boolean
 }
 
 const COALESCE_WINDOW_MS = 500
