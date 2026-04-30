@@ -55,6 +55,40 @@ describe("defineEditorSchema", () => {
     expect(() => Schema.decodeUnknownSync(lessonSchema.Document)(doc)).toThrow()
   })
 
+  it("rejects non-doc roots", () => {
+    const doc = {
+      type: "paragraph",
+      content: [{ type: "text", text: "Hello" }],
+    }
+    expect(() => Schema.decodeUnknownSync(lessonSchema.Document)(doc)).toThrow()
+  })
+
+  it("rejects nested doc nodes", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "nested" }] }],
+        },
+      ],
+    }
+    expect(() => Schema.decodeUnknownSync(lessonSchema.Document)(doc)).toThrow()
+  })
+
+  it("rejects content that violates ProseMirror content expressions", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "bad" }] }],
+        },
+      ],
+    }
+    expect(() => Schema.decodeUnknownSync(lessonSchema.Document)(doc)).toThrow()
+  })
+
   it("rejects an invalid attrs shape", () => {
     const doc = {
       type: "doc",

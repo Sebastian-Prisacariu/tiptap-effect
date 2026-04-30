@@ -124,7 +124,7 @@ const _lockedSchema = defineEditorSchema({
 type _Document = typeof _lockedSchema.Document.Type
 type _DocumentContent = NonNullable<_Document["content"]>[number]
 type _DocumentContentTypes = _DocumentContent["type"]
-type _ExpectedContentTypes = "doc" | "paragraph" | "heading" | "text"
+type _ExpectedContentTypes = "paragraph" | "heading" | "text"
 type _ContentUnionMatches = _DocumentContentTypes extends _ExpectedContentTypes
   ? _ExpectedContentTypes extends _DocumentContentTypes
     ? "ok"

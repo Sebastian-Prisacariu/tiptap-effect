@@ -194,6 +194,21 @@ describe("makeEditorAtom — transaction funnel to bus", () => {
 })
 
 describe("makeEditorAtom — surgical update for editable", () => {
+  it("uses editableAtom's initial value when creating the editor", async () => {
+    const { Atom } = await import("@effect-atom/atom")
+    const editableAtom = Atom.make(false)
+    const atom = makeEditorAtom({
+      id: EditorId("ed-edit-initial"),
+      schema: lessonSchema,
+      defaultContent: validDoc,
+      editableAtom,
+    })
+
+    const [handle, keepAlive] = await waitForKeptAtom(atom)
+    expect(handle._internal.editor.isEditable).toBe(false)
+    keepAlive()
+  })
+
   it("calls setEditable when editableAtom changes; does not destroy", async () => {
     const { Atom } = await import("@effect-atom/atom")
     const editableAtom = Atom.make(true)

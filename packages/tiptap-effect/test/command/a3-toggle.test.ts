@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { type NotReversibleError, Reverse } from "tiptap-effect/command"
 import { CommandExecutor, type NotReversibleAttempt } from "tiptap-effect/command"
 import { CommandHistory } from "tiptap-effect/command"
+import { InsertTextCommand } from "tiptap-effect/command/commands"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
@@ -101,5 +102,31 @@ describe("CommandExecutor — A3 toggle", () => {
       }),
     )
     expect(past.length).toBe(0)
+  })
+
+  it("a blocked notReversible undo preserves redo history", async () => {
+    const id = EditorId("ed-a3-redo")
+    const editorAtom = makeEditorAtom({ id, schema: lessonSchema, defaultContent: validDoc })
+    const _keep = registry.subscribe(editorAtom, () => {})
+    const handle = await waitForAtom(registry, editorAtom)
+    const editor = handle._internal.editor
+    handle.mount(document.createElement("div"))
+    editor.commands.setTextSelection(1)
+
+    const result = await runtime.runPromise(
+      Effect.gen(function* () {
+        const exec = yield* CommandExecutor
+        yield* exec.run(editor, SendEmailCmd, undefined)
+        yield* exec.run(editor, InsertTextCommand, { text: "X" })
+        yield* exec.undo(editor)
+        const blocked = yield* Effect.either(exec.undo(editor))
+        const redone = yield* exec.redo(editor)
+        return { blocked, redone }
+      }),
+    )
+
+    expect(result.blocked._tag).toBe("Left")
+    expect(result.redone?.op).toBe("tiptap-effect.insert.text")
+    expect(editor.getText()).toContain("X")
   })
 })

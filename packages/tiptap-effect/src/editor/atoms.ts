@@ -1,5 +1,5 @@
 import { Atom, Result } from "@effect-atom/atom"
-import { Cause, Effect, Either, ParseResult, Stream } from "effect"
+import { Cause, Effect, Either, Option, ParseResult, Stream } from "effect"
 import { editorRuntime } from "../runtime"
 import { TransactionBus } from "../runtime/internal/transaction-bus"
 import type { EditorCommand } from "../command"
@@ -167,10 +167,18 @@ export const plainTextAtom = (editorId: EditorId) =>
  * Focus state of the editor. Defaults to false until a focus event flows.
  */
 export const focusAtom = (editorId: EditorId) =>
-  Atom.map(transactionBusAtom(editorId), (r) => {
-    const snap = unwrapSnap(r)
-    if (!snap) return false
-    return snap.sourceMeta.includes("focus")
+  Atom.make((get) => {
+    const previous = Option.getOrElse(get.self<boolean>(), () => false)
+    const snap = unwrapSnap(get(transactionBusAtom(editorId)))
+    if (!snap) return previous
+
+    const next = snap.sourceMeta.includes("focus")
+      ? true
+      : snap.sourceMeta.includes("blur")
+        ? false
+        : previous
+    if (next !== previous) get.setSelf(next)
+    return next
   })
 
 /**

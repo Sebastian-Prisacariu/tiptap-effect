@@ -585,7 +585,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
               })
               return yield* undo(editor)
             }
-            yield* history.push(editorId, last)
+            yield* history.pushPreserveFuture(editorId, last)
             yield* Ref.update(a3State, (all) => {
               const next = new Map(all)
               next.set(editorId, { op: last.op, at: now })

@@ -163,6 +163,10 @@ describe("slices", () => {
     await new Promise((r) => setTimeout(r, 20))
     expect(registry.get(focus)).toBe(true)
 
+    editorHandle._internal.editor.commands.insertContent("!")
+    await new Promise((r) => setTimeout(r, 20))
+    expect(registry.get(focus)).toBe(true)
+
     editor.emit("blur", { editor: editorHandle._internal.editor, event: null })
     await new Promise((r) => setTimeout(r, 20))
     expect(registry.get(focus)).toBe(false)

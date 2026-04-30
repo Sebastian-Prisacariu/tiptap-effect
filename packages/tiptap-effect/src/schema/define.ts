@@ -1,6 +1,7 @@
 import { Schema } from "effect"
-import { Mark as TiptapMarkExt, Node as TiptapNodeExt } from "@tiptap/core"
+import { getSchemaByResolvedExtensions, Mark as TiptapMarkExt, Node as TiptapNodeExt } from "@tiptap/core"
 import type { Extensions } from "@tiptap/core"
+import { Node as ProseMirrorNode, type Schema as ProseMirrorSchema } from "@tiptap/pm/model"
 import { tiptapAttrsFromSchema } from "./derive"
 import type { MarkDefinition, NodeDefinition } from "./node-definition"
 
@@ -36,6 +37,38 @@ type NodeJSONFor<
     : never
   : never
 
+type DocumentChildJSONFor<
+  N extends Record<string, unknown>,
+  M extends Record<string, unknown>,
+> = N[keyof N] extends infer Def
+  ? Def extends NodeDefinition<infer Name, infer Attrs>
+    ? Name extends "doc"
+      ? never
+      : {
+          readonly type: Name
+          readonly attrs?: Attrs
+          readonly content?: ReadonlyArray<DocumentChildJSONFor<N, M>>
+          readonly text?: string
+          readonly marks?: ReadonlyArray<MarkJSONFor<M>>
+        }
+    : never
+  : never
+
+type DocumentJSONFor<
+  N extends Record<string, unknown>,
+  M extends Record<string, unknown>,
+> = N[keyof N] extends infer Def
+  ? Def extends NodeDefinition<infer Name, infer Attrs>
+    ? Name extends "doc"
+      ? {
+          readonly type: Name
+          readonly attrs?: Attrs
+          readonly content?: ReadonlyArray<DocumentChildJSONFor<N, M>>
+        }
+      : never
+    : never
+  : never
+
 type MarkJSONFor<M extends Record<string, unknown>> =
   M[keyof M] extends infer Def
     ? Def extends MarkDefinition<infer Name, infer Attrs>
@@ -63,7 +96,7 @@ export interface EditorSchema<
   readonly marks: M
   readonly NodeUnion: Schema.Schema<NodeJSONFor<N, M>>
   readonly MarkUnion: Schema.Schema<MarkJSONFor<M>>
-  readonly Document: Schema.Schema<NodeJSONFor<N, M>>
+  readonly Document: Schema.Schema<DocumentJSONFor<N, M>>
   readonly tiptapExtensions: Extensions
   readonly migrate: (raw: unknown) => unknown
 }
@@ -151,6 +184,20 @@ const buildTiptapMark = <Name extends string, Attrs extends Record<string, unkno
   return TiptapMarkExt.create(config)
 }
 
+const validateProseMirrorDocument = (
+  pmSchema: ProseMirrorSchema,
+  value: unknown,
+): boolean => {
+  try {
+    const node = ProseMirrorNode.fromJSON(pmSchema, value)
+    if (node.type !== pmSchema.topNodeType) return false
+    node.check()
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Declare the schema for an editor. Generates:
  *  - a discriminated-union `Document` Schema for runtime validation,
@@ -193,14 +240,20 @@ export const defineEditorSchema = <
       : Schema.Union(...nodeStructs)) as unknown as Schema.Schema<NodeJSONFor<N, M>>
   })
 
-  // Document = the root node (must have type === "doc"); we surface NodeUnion.
-  // Consumers validate the doc type themselves; PM enforces structural rules at runtime.
-  const Document = NodeUnion
-
   const tiptapExtensions: Extensions = [
     ...nodeDefs.map(buildTiptapNode),
     ...markDefs.map(buildTiptapMark),
   ]
+  const pmSchema = getSchemaByResolvedExtensions(tiptapExtensions)
+  const Document = NodeUnion.pipe(
+    Schema.filter(
+      (node): node is DocumentJSONFor<N, M> =>
+        validateProseMirrorDocument(pmSchema, node),
+      {
+        message: () => "Document does not satisfy the ProseMirror schema",
+      },
+    ),
+  )
 
   const migrate = spec.migrate ?? ((raw: unknown) => raw)
 

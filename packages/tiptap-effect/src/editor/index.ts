@@ -66,6 +66,7 @@ const createTiptapEditor = <
   spec: EditorSpec<N, M>,
   extensions: Extensions,
   content: NodeJSON,
+  editable: boolean,
   editorProps: Record<string, unknown> | undefined,
   nodeViewStore: NodeViewStore,
 ): TiptapEditor =>
@@ -75,7 +76,7 @@ const createTiptapEditor = <
       new TiptapEditor({
         element: null,
         extensions,
-        editable: spec.editable ?? true,
+        editable,
         content: content as JSONContent,
         ...(editorProps === undefined ? {} : { editorProps }),
       }),
@@ -128,6 +129,10 @@ export const makeEditorAtom = <
         spec.editorPropsAtom !== undefined
           ? get.once(spec.editorPropsAtom)
           : spec.editorProps
+      const initialEditable =
+        spec.editableAtom !== undefined
+          ? get.once(spec.editableAtom)
+          : spec.editable ?? true
 
       const effectiveSpec: EditorSpec<N, M> =
         reactiveExtensions === undefined
@@ -145,6 +150,7 @@ export const makeEditorAtom = <
         effectiveSpec,
         extensions,
         content,
+        initialEditable,
         reactiveEditorProps,
         nodeViewStore,
       )
