@@ -13,6 +13,7 @@ export {
   useDispatch,
   useDispatchEffect,
   useDispatchPromise,
+  useEditorState,
   useEditorSlice,
   useEditorSubscribe,
   useHistory,
@@ -20,6 +21,21 @@ export {
   useCommandPending,
   useCommandErrors,
   useRawEditor,
+  type EditorStateSnapshot,
+  type UseEditorStateOptions,
 } from "./hooks"
-export { NodeViewContext, useNodeViewProps } from "./NodeViewContext"
+export {
+  NodeViewContext,
+  NodeViewWrapper,
+  useNodeViewProps,
+} from "./NodeViewContext"
+export {
+  ReactRenderer,
+  type ReactRendererOptions,
+} from "./ReactRenderer"
+export { isTextSelection } from "@tiptap/core"
+export type {
+  Editor,
+  JSONContent,
+} from "@tiptap/core"
 export type { NodeViewProps } from "../editor/internal/node-view-store"

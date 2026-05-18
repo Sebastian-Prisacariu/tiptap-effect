@@ -80,8 +80,11 @@ export function useEditorSlice<T>(
 export const useEditorSubscribe = <T,>(
   factory: (id: EditorId) => Atom.Atom<T>,
   handler: (value: T) => void,
+  options?: { readonly debounceMs?: number },
 ): void => {
-  const value = useEditorSlice(factory)
+  const value = options?.debounceMs === undefined
+    ? useEditorSlice(factory)
+    : useEditorSlice(factory, { debounceMs: options.debounceMs })
   const handlerRef = React.useRef(handler)
   React.useEffect(() => {
     handlerRef.current = handler
@@ -89,6 +92,79 @@ export const useEditorSubscribe = <T,>(
   React.useEffect(() => {
     handlerRef.current(value)
   }, [value])
+}
+
+type EditorEventName = "transaction" | "selectionUpdate" | "focus" | "blur"
+type EditorStateLike = {
+  on: (event: EditorEventName, handler: () => void) => void
+  off: (event: EditorEventName, handler: () => void) => void
+}
+
+export type EditorStateSnapshot<TEditor extends EditorStateLike | null = EditorStateLike | null> = {
+  readonly editor: TEditor
+  readonly transactionNumber: number
+}
+
+export interface UseEditorStateOptions<
+  TSelectorResult,
+  TEditor extends EditorStateLike | null,
+> {
+  readonly editor: TEditor
+  readonly selector: (snapshot: EditorStateSnapshot<TEditor>) => TSelectorResult
+  readonly equalityFn?: (a: TSelectorResult, b: TSelectorResult) => boolean
+}
+
+const defaultEditorStateEquality = <A,>(a: A, b: A): boolean => Object.is(a, b)
+
+export function useEditorState<TSelectorResult, TEditor extends EditorStateLike>(
+  options: UseEditorStateOptions<TSelectorResult, TEditor>,
+): TSelectorResult
+export function useEditorState<
+  TSelectorResult,
+  TEditor extends EditorStateLike | null,
+>(
+  options: UseEditorStateOptions<TSelectorResult, TEditor>,
+): TSelectorResult | null
+export function useEditorState<TSelectorResult>(
+  options:
+    | UseEditorStateOptions<TSelectorResult, EditorStateLike>
+    | UseEditorStateOptions<TSelectorResult, EditorStateLike | null>,
+): TSelectorResult | null {
+  const { editor, selector, equalityFn = defaultEditorStateEquality } = options
+  const [transactionNumber, setTransactionNumber] = React.useState(0)
+  const lastValue = React.useRef<TSelectorResult | null>(null)
+
+  React.useEffect(() => {
+    setTransactionNumber(0)
+    if (!editor) return
+    const update = () => setTransactionNumber((number) => number + 1)
+    editor.on("transaction", update)
+    editor.on("selectionUpdate", update)
+    editor.on("focus", update)
+    editor.on("blur", update)
+    return () => {
+      editor.off("transaction", update)
+      editor.off("selectionUpdate", update)
+      editor.off("focus", update)
+      editor.off("blur", update)
+    }
+  }, [editor])
+
+  return React.useMemo(() => {
+    if (!editor) {
+      lastValue.current = null
+      return null
+    }
+    const selected = selector({ editor, transactionNumber })
+    if (
+      lastValue.current !== null
+      && equalityFn(lastValue.current, selected)
+    ) {
+      return lastValue.current
+    }
+    lastValue.current = selected
+    return selected
+  }, [editor, transactionNumber, selector, equalityFn])
 }
 
 const useRegistry = (): Registry.Registry => {

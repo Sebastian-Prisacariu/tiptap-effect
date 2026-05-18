@@ -32,3 +32,21 @@ export const useNodeViewProps = <Attrs = Record<string, unknown>,>(): {
     unsafe: { node: ctx.unsafeNode },
   }
 }
+
+type NodeViewWrapperProps = React.HTMLAttributes<HTMLElement> & {
+  readonly as?: keyof React.JSX.IntrinsicElements
+}
+
+export const NodeViewWrapper: React.FC<NodeViewWrapperProps> = ({
+  as = "div",
+  children,
+  ...props
+}) =>
+  React.createElement(
+    as,
+    {
+      ...props,
+      "data-node-view-wrapper": "",
+    },
+    children,
+  )
