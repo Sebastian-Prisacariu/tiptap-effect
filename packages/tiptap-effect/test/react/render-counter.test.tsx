@@ -151,7 +151,6 @@ describe("EditorScope — two scopes, two distinct editors", () => {
     expect(editorA).not.toBe(editorB)
 
     // Dispatch ToggleBold in scope A; assert scope B is unaffected.
-    editorA!.commands.focus()
     editorA!.commands.setTextSelection({ from: 1, to: 4 })
     await act(async () => {
       await dispatchA!(ToggleBold, undefined)

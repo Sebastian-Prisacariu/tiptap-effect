@@ -4,7 +4,6 @@ import {
   useAtomInitialValues,
   useAtomMount,
   useAtomSet,
-  useAtomSubscribe,
   useAtomValue,
 } from "@effect-atom/atom-react"
 import type {
@@ -79,8 +78,8 @@ export const Content = React.forwardRef<
   const setMountElement = useAtomSet(EditorAtom.mountElement(id))
   const [localRef, setRef] = useMergedRef(forwardedRef)
 
-  useAtomMount(EditorAtom.events(id))
-  useAtomMount(EditorAtom.mounted(id))
+  useAtomValue(EditorAtom.events(id))
+  useAtomValue(EditorAtom.mounted(id))
 
   useIsomorphicLayoutEffect(() => {
     setMountElement(localRef.current)
@@ -122,9 +121,22 @@ export const useSubscribe = <T,>(
     () => EditorAtom.slice(id, selector),
     [id, selector],
   )
-  useAtomSubscribe(selectorAtom, (value) => {
-    if (value !== null) handler(value)
-  })
+  const value = useAtomValue(selectorAtom)
+  const handlerRef = React.useRef(handler)
+  const hasValueRef = React.useRef(false)
+
+  React.useEffect(() => {
+    handlerRef.current = handler
+  }, [handler])
+
+  React.useEffect(() => {
+    if (value === null) {
+      hasValueRef.current = false
+      return
+    }
+    if (hasValueRef.current) handlerRef.current(value)
+    hasValueRef.current = true
+  }, [value])
 }
 
 export const useEvent = <Event extends Editor.Event>(

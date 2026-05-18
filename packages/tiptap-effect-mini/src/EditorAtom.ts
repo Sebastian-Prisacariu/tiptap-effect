@@ -5,6 +5,7 @@ export {
   canRun,
   editor,
   events,
+  factory,
   html,
   instance,
   isActive,
@@ -31,4 +32,3 @@ export {
   setEditable,
   setOptions,
 } from "./internal/editorAtom"
-

@@ -1,10 +1,10 @@
 {
-  "name": "tiptap-effect-basic-vite",
+  "name": "tiptap-effect-mini-playwright-vite",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@effect-atom/atom": "0.5.0",
@@ -14,11 +14,13 @@
     "effect": "3.21.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "tiptap-effect": "workspace:*"
+    "tiptap-effect-mini": "workspace:*"
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
+    "@tiptap/extension-bold": "3.15.3",
+    "@tiptap/extension-document": "3.15.3",
+    "@tiptap/extension-paragraph": "3.15.3",
+    "@tiptap/extension-text": "3.15.3",
     "@vitejs/plugin-react": "latest",
     "typescript": "^5.7.2",
     "vite": "latest"

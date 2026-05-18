@@ -1,4 +1,5 @@
 import { Atom, Result } from "@effect-atom/atom"
+import type { Registry } from "@effect-atom/atom"
 import {
   Editor as NativeEditor,
   type JSONContent,
@@ -11,6 +12,31 @@ import * as editorEvent from "./editor"
 
 const runtime = Atom.runtime(Layer.empty)
 const bump = (n: number) => n + 1
+
+export type Factory = (options: Editor.Options) => Editor.Editor
+interface FactoryState {
+  readonly make: Factory
+}
+
+const defaultFactory: Factory = (editorOptions) =>
+  new NativeEditor({
+    ...editorOptions,
+    element: null,
+  })
+
+const factoryState = Atom.make<FactoryState>({ make: defaultFactory }).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("editorFactoryState"),
+)
+
+export const factory = Atom.writable(
+  (get) => get(factoryState).make,
+  (ctx, value: Factory) => ctx.set(factoryState, { make: value }),
+  (refresh) => refresh(factoryState),
+).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("editorFactory"),
+)
 
 export const options = Atom.family((id: Editor.Id) =>
   Atom.make<Editor.Options | null>(null).pipe(
@@ -47,7 +73,7 @@ export const mountElement = Atom.family((id: Editor.Id) =>
 )
 
 export const editor = Atom.family((id: Editor.Id) =>
-  runtime.atom((get) => {
+  Atom.make((get) => {
     const editorOptions = get(options(id))
     if (editorOptions === null) {
       return Effect.fail(
@@ -59,13 +85,10 @@ export const editor = Atom.family((id: Editor.Id) =>
     }
 
     return Effect.sync(() => {
-      const instance = new NativeEditor({
-        ...editorOptions,
-        element: null,
-      })
+      const instance = get(factory)(editorOptions)
 
       get.addFinalizer(() => {
-        if (!instance.isDestroyed) instance.destroy()
+        instance.destroy()
       })
 
       return instance
@@ -101,6 +124,25 @@ const markFocus = (get: Atom.FnContext, id: Editor.Id) => {
   markTransaction(get, id)
 }
 
+const markTransactionRegistry = (registry: Registry.Registry, id: Editor.Id) => {
+  registry.set(version(id), bump(registry.get(version(id))))
+}
+
+const markDocumentRegistry = (registry: Registry.Registry, id: Editor.Id) => {
+  registry.set(documentVersion(id), bump(registry.get(documentVersion(id))))
+  markTransactionRegistry(registry, id)
+}
+
+const markSelectionRegistry = (registry: Registry.Registry, id: Editor.Id) => {
+  registry.set(selectionVersion(id), bump(registry.get(selectionVersion(id))))
+  markTransactionRegistry(registry, id)
+}
+
+const markFocusRegistry = (registry: Registry.Registry, id: Editor.Id) => {
+  registry.set(focusVersion(id), bump(registry.get(focusVersion(id))))
+  markTransactionRegistry(registry, id)
+}
+
 const refreshState = (
   get: Atom.FnContext,
   id: Editor.Id,
@@ -116,37 +158,38 @@ const refreshState = (
 
 export const events = Atom.family((id: Editor.Id) =>
   Atom.make((get) => {
-    const result = get(editor(id))
-    if (!Result.isSuccess(result)) return result
+    const registry = get.registry
+    return Effect.gen(function* () {
+      const instance = yield* get.result(editor(id), { suspendOnWaiting: true })
+      const handlers = HashMap.fromIterable<Editor.Event, () => void>([
+        ["transaction", () => markTransactionRegistry(registry, id)],
+        ["selectionUpdate", () => markSelectionRegistry(registry, id)],
+        ["update", () => markDocumentRegistry(registry, id)],
+        ["focus", () => markFocusRegistry(registry, id)],
+        ["blur", () => markFocusRegistry(registry, id)],
+        ["mount", () => markTransactionRegistry(registry, id)],
+        ["unmount", () => markTransactionRegistry(registry, id)],
+        ["create", () => markTransactionRegistry(registry, id)],
+        ["destroy", () => markTransactionRegistry(registry, id)],
+        ["contentError", () => markDocumentRegistry(registry, id)],
+      ])
 
-    const instance = result.value
-    const handlers = HashMap.fromIterable<Editor.Event, () => void>([
-      ["transaction", () => markTransaction(get, id)],
-      ["selectionUpdate", () => markSelection(get, id)],
-      ["update", () => markDocument(get, id)],
-      ["focus", () => markFocus(get, id)],
-      ["blur", () => markFocus(get, id)],
-      ["mount", () => markTransaction(get, id)],
-      ["unmount", () => markTransaction(get, id)],
-      ["create", () => markTransaction(get, id)],
-      ["destroy", () => markTransaction(get, id)],
-      ["contentError", () => markDocument(get, id)],
-    ])
-
-    HashMap.forEach(handlers, (handler, event) => {
-      editorEvent.onEvent(instance, event, handler)
+      return yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          HashMap.forEach(handlers, (handler, event) => {
+            editorEvent.onEvent(instance, event, handler)
+          })
+          return instance
+        }),
+        () =>
+          Effect.sync(() => {
+            HashMap.forEach(handlers, (handler, event) => {
+              editorEvent.offEvent(instance, event, handler)
+            })
+          }),
+      )
     })
-    get.addFinalizer(() => {
-      HashMap.forEach(handlers, (handler, event) => {
-        editorEvent.offEvent(instance, event, handler)
-      })
-    })
-
-    return result
-  }).pipe(
-    Atom.keepAlive,
-    Atom.withLabel(`editorEvents(${id})`),
-  )
+  }).pipe(Atom.withLabel(`editorEvents(${id})`))
 )
 
 export const snapshot = Atom.family((id: Editor.Id) =>
@@ -222,7 +265,7 @@ export const canRun = (
   )
 
 export const mounted = Atom.family((id: Editor.Id) =>
-  runtime.atom((get) =>
+  Atom.make((get) =>
     Effect.gen(function* () {
       const element = get(mountElement(id))
       if (element === null) {
@@ -230,22 +273,17 @@ export const mounted = Atom.family((id: Editor.Id) =>
         return false
       }
 
-      const current = yield* getEditor(id, get)
+      const current = yield* get.result(editor(id), { suspendOnWaiting: true })
       return yield* Effect.acquireRelease(
         Effect.sync(() => {
-          if (!current.isDestroyed) {
-            current.unmount()
-            current.mount(element)
-          }
-          get.set(isMounted(id), !current.isDestroyed)
-          markTransaction(get, id)
+          current.unmount()
+          current.mount(element)
+          get.set(isMounted(id), true)
           return current
         }),
         (mountedEditor) =>
           Effect.sync(() => {
-            if (!mountedEditor.isDestroyed) {
-              mountedEditor.unmount()
-            }
+            mountedEditor.unmount()
           }),
       )
     }),
@@ -256,11 +294,13 @@ export const mounted = Atom.family((id: Editor.Id) =>
 )
 
 export const refresh = Atom.fnSync((id: Editor.Id, get) => {
+  const element = get(mountElement(id))
   get.set(mountElement(id), null)
   get.refresh(editor(id))
   get.refresh(events(id))
+  if (element !== null) get.set(mountElement(id), element)
   get.refresh(mounted(id))
-  get.set(isMounted(id), false)
+  if (element === null) get.set(isMounted(id), false)
   markTransaction(get, id)
 }).pipe(Atom.keepAlive, Atom.withLabel("refreshEditor"))
 
@@ -268,12 +308,14 @@ export const setOptions = Atom.fnSync((
   input: { readonly id: Editor.Id; readonly options: Editor.Options },
   get,
 ) => {
+  const element = get(mountElement(input.id))
   get.set(mountElement(input.id), null)
   get.set(options(input.id), input.options)
   get.refresh(editor(input.id))
   get.refresh(events(input.id))
+  if (element !== null) get.set(mountElement(input.id), element)
   get.refresh(mounted(input.id))
-  get.set(isMounted(input.id), false)
+  if (element === null) get.set(isMounted(input.id), false)
   markTransaction(get, input.id)
 }).pipe(Atom.keepAlive, Atom.withLabel("setEditorOptions"))
 
@@ -324,4 +366,3 @@ export const runSync = Atom.fnSync((
   refreshState(get, input.id, input.refresh)
   return value
 }).pipe(Atom.keepAlive, Atom.withLabel("runEditorSync"))
-

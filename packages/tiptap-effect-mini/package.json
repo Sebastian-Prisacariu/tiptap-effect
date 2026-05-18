@@ -15,6 +15,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "env -u NO_COLOR playwright test",
     "build": "tsc -p tsconfig.build.json"
   },
   "peerDependencies": {
@@ -28,10 +31,20 @@
   "devDependencies": {
     "@effect-atom/atom": "0.5.0",
     "@effect-atom/atom-react": "0.5.0",
+    "@playwright/test": "^1.57.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.1.0",
     "@tiptap/core": "3.15.3",
     "@tiptap/pm": "3.15.3",
     "@types/react": "^19.0.0",
-    "effect": "3.19.15",
-    "typescript": "^5.7.2"
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "latest",
+    "effect": "3.21.2",
+    "happy-dom": "latest",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "typescript": "^5.7.2",
+    "vite": "latest",
+    "vitest": "^3.2.0"
   }
 }
