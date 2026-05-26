@@ -145,10 +145,18 @@ docAtom(id, lessonSchema)
 htmlAtom(id, lessonSchema)
 ```
 
-`docAtom` decodes the latest editor document against `schema.Document` and
-returns `Result.success(doc)` or `Result.failure(parseError)`. Use
-`useEditorSlice((id) => docAtom(id, lessonSchema), { debounceMs: 1500 })` for
-persistence wiring so rapid typing produces one save-side emission per window.
+`docAtom` decodes the current editor document against `schema.Document` and
+returns `Result.success(doc)` or `Result.failure(parseError)`. The editor emits
+an initial `"init"` snapshot when it boots, so `docAtom`, `htmlAtom`,
+`plainTextAtom`, and selection slices expose the loaded document before the user
+types.
+
+Use `useEditorSlice((id) => docAtom(id, lessonSchema), { debounceMs: 1500 })`
+for persistence wiring so rapid typing produces one save-side emission per
+window. Because the initial document is a real emission, autosave code should
+treat `docAtom` as a read subscription, not a save policy by itself. Gate POSTs
+with `dirtyAtom`, `MarkSavedCommand`, or an explicit "skip first emission" guard
+when you only want to save user edits.
 
 ## Commands
 

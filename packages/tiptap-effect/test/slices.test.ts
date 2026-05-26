@@ -1,4 +1,4 @@
-import { Registry } from "@effect-atom/atom"
+import { Registry, Result } from "@effect-atom/atom"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "../src/schema/define"
@@ -11,8 +11,11 @@ import {
 } from "../src/schema/nodes"
 import {
   canExecuteAtom,
+  docAtom,
   focusAtom,
+  htmlAtom,
   isActiveAtom,
+  plainTextAtom,
   selectedNodeAtom,
   selectionAtom,
 } from "tiptap-effect/editor"
@@ -41,7 +44,7 @@ afterEach(() => {
 })
 
 describe("slices", () => {
-  it("selectionAtom is null before any transaction", async () => {
+  it("selectionAtom reflects the initial editor selection", async () => {
     const id = EditorId("ed-sel-1")
     const editor = makeEditorAtom({ id, schema: lessonSchema, defaultContent: validDoc })
     const sel = selectionAtom(id)
@@ -50,9 +53,32 @@ describe("slices", () => {
     const _keepSel = registry.subscribe(sel, () => {})
     await waitForAtom(registry, editor)
 
-    // No transaction has been pushed yet → null
     const value = registry.get(sel)
-    expect(value).toBeNull()
+    expect(value).not.toBeNull()
+    expect(value!.kind).toBe("text")
+  })
+
+  it("doc/html/text atoms expose initial content before user transactions", async () => {
+    const id = EditorId("ed-initial-doc-1")
+    const editor = makeEditorAtom({ id, schema: lessonSchema, defaultContent: validDoc })
+    const doc = docAtom(id, lessonSchema)
+    const html = htmlAtom(id, lessonSchema)
+    const text = plainTextAtom(id)
+
+    const _keepEditor = registry.subscribe(editor, () => {})
+    const _keepDoc = registry.subscribe(doc, () => {})
+    const _keepHtml = registry.subscribe(html, () => {})
+    const _keepText = registry.subscribe(text, () => {})
+    await waitForAtom(registry, editor)
+
+    const docValue = registry.get(doc)
+    expect(docValue).not.toBeNull()
+    expect(Result.isSuccess(docValue!)).toBe(true)
+    if (Result.isSuccess(docValue!)) {
+      expect(docValue.value).toEqual(validDoc)
+    }
+    expect(registry.get(html)).toContain("<p>Hello</p>")
+    expect(registry.get(text)).toBe("Hello")
   })
 
   it("selectionAtom updates on text editor transactions", async () => {
