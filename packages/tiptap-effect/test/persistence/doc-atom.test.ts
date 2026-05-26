@@ -29,7 +29,7 @@ afterEach(() => {
 
 
 describe("docAtom", () => {
-  it("returns null before any transaction emits", async () => {
+  it("emits Result.success(doc) for the initial editor snapshot", async () => {
     const id = EditorId("ed-doc-1")
     const editorAtom = makeEditorAtom({
       id,
@@ -42,7 +42,12 @@ describe("docAtom", () => {
     const _keepDoc = registry.subscribe(doc, () => {})
     await waitForAtom(registry, editorAtom)
 
-    expect(registry.get(doc)).toBeNull()
+    const result = registry.get(doc)
+    expect(result).not.toBeNull()
+    expect(Result.isSuccess(result!)).toBe(true)
+    if (Result.isSuccess(result!)) {
+      expect(result.value).toEqual(validDoc)
+    }
     void _keepEditor
     void _keepDoc
   })
@@ -112,7 +117,7 @@ describe("docAtom", () => {
 })
 
 describe("htmlAtom", () => {
-  it("returns the empty string before any transaction emits", async () => {
+  it("returns the initial editor HTML", async () => {
     const id = EditorId("ed-html-1")
     const editorAtom = makeEditorAtom({
       id,
@@ -125,7 +130,7 @@ describe("htmlAtom", () => {
     const _keepHtml = registry.subscribe(html, () => {})
     await waitForAtom(registry, editorAtom)
 
-    expect(registry.get(html)).toBe("")
+    expect(registry.get(html)).toContain("<p>Hello</p>")
     void _keepEditor
     void _keepHtml
   })

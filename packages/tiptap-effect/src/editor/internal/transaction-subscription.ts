@@ -20,6 +20,7 @@ interface TiptapFocusEvent {
 }
 
 const NO_TRANSACTION = { docChanged: false, selectionSet: false } as const
+const INITIAL_SOURCE_META = ["init"] as const
 
 const installedSubscriptions = new WeakMap<TiptapEditor, () => void>()
 
@@ -78,6 +79,15 @@ const installTransactionSubscription = <
     editor.on("transaction", transactionHandler)
     editor.on("focus", focusHandler)
     editor.on("blur", blurHandler)
+
+    const initialSnapshot = snapshotForEditor(NO_TRANSACTION, editor.state, {
+      sourceMeta: INITIAL_SOURCE_META,
+    })
+    yield* bus.push(initialSnapshot.editorId, initialSnapshot)
+
+    if (devSchemaCheck && schema !== undefined) {
+      yield* checkDocumentSchema(schema, initialSnapshot.stateAfter)
+    }
 
     const cleanup = () => {
       editor.off("transaction", transactionHandler)

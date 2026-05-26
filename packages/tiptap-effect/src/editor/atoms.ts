@@ -16,8 +16,11 @@ import { getEditorById } from "../internal/editor-ids"
 
 /**
  * Per-editor atom that mirrors the latest TransactionSnapshot pushed to the
- * bus. Slice atoms derive from this via `Atom.map` so React only re-renders
- * the slices whose projection changed.
+ * bus. Editor initialization pushes an `"init"` snapshot before user
+ * transactions, so slice atoms can expose initial editor state.
+ *
+ * Slice atoms derive from this via `Atom.map` so React only re-renders the
+ * slices whose projection changed.
  */
 export const transactionBusAtom = Atom.family((editorId: EditorId) =>
   editorRuntime.atom(
@@ -65,7 +68,7 @@ type NodeSelectionState = {
 
 /**
  * Selection slice atom. Reads from the latest transaction snapshot's state.
- * Returns `null` until the first transaction emits.
+ * Returns `null` only before the editor's initial snapshot is available.
  */
 export const selectionAtom = (editorId: EditorId) =>
   Atom.map(transactionBusAtom(editorId), (r) => {
@@ -184,7 +187,7 @@ export const focusAtom = (editorId: EditorId) =>
 /**
  * The current doc as a typed `NodeJSON`, decoded against `schema.Document`.
  *
- * Returns `null` until the first transaction emits, then `Result.success(doc)`
+ * Returns `null` until the editor snapshot is available, then `Result.success(doc)`
  * on successful schema decode and `Result.failure(parseError)` on failure.
  *
  * Lazy: `Schema.decodeUnknown` is not invoked until a subscriber reads this
@@ -218,7 +221,7 @@ export const docAtom = <
 /**
  * Current HTML rendering of the doc via static serialization.
  *
- * Returns the empty string until the first transaction emits or when the
+ * Returns the empty string until the editor snapshot is available or when the
  * snapshot cannot be decoded against the provided schema.
  */
 export const htmlAtom = <
