@@ -7,8 +7,9 @@ import {
   EditorScope,
   TiptapView,
   type DispatchResult,
+  type HistoryResult,
   useDispatch,
-  useHistoryPromise,
+  useHistory,
   useRawEditor,
 } from "tiptap-effect/react"
 import { defineEditorSchema } from "tiptap-effect/schema"
@@ -46,17 +47,17 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <RegistryContext.Provider value={registry}>{children}</RegistryContext.Provider>
 )
 
-describe("useDispatch result mode + useHistoryPromise", () => {
+describe("useDispatch result mode + useHistory", () => {
   it("dispatch toggles bold; history.undo restores", async () => {
     let exposed: {
       dispatch: DispatchResult
-      history: ReturnType<typeof useHistoryPromise>
+      history: HistoryResult
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
     const Probe: React.FC = () => {
       const dispatch = useDispatch({ mode: "result" })
-      const history = useHistoryPromise()
+      const history = useHistory({ mode: "result" })
       const editor = useRawEditor({ unsafe: true })
       exposed = { dispatch, history, editor }
       return null
@@ -147,25 +148,25 @@ describe("useDispatch result mode + useHistoryPromise", () => {
   it("history is scoped to the current EditorScope", async () => {
     let exposedA: {
       dispatch: DispatchResult
-      history: ReturnType<typeof useHistoryPromise>
+      history: HistoryResult
       editor: ReturnType<typeof useRawEditor>
     } | null = null
     let exposedB: {
-      history: ReturnType<typeof useHistoryPromise>
+      history: HistoryResult
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
     const ProbeA: React.FC = () => {
       exposedA = {
         dispatch: useDispatch({ mode: "result" }),
-        history: useHistoryPromise(),
+        history: useHistory({ mode: "result" }),
         editor: useRawEditor({ unsafe: true }),
       }
       return null
     }
     const ProbeB: React.FC = () => {
       exposedB = {
-        history: useHistoryPromise(),
+        history: useHistory({ mode: "result" }),
         editor: useRawEditor({ unsafe: true }),
       }
       return null

@@ -32,6 +32,7 @@ import type {
   DispatchEffect,
   DocumentOf,
   EditorCommand,
+  HistoryEffect,
   ReverseKind,
   useDispatch,
   useHistory,
@@ -53,7 +54,7 @@ void _raw_ok
 
 // 3) useDispatch / useHistory return shapes — must NOT contain `editor`
 type DispatchReturn = ReturnType<typeof useDispatch>
-type HistoryReturn = ReturnType<typeof useHistory>
+type HistoryReturn = HistoryEffect
 
 type _NoEditorOnDispatchReturn = DispatchReturn extends { editor: unknown } ? never : "ok"
 type _NoEditorOnHistoryReturn = HistoryReturn extends { editor: unknown } ? never : "ok"

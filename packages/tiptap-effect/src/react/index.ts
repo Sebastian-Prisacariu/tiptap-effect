@@ -15,7 +15,6 @@ export {
   useEditorSlice,
   useEditorSubscribe,
   useHistory,
-  useHistoryPromise,
   useCommandPending,
   useCommandErrors,
   useNodeViewActions,
@@ -25,8 +24,13 @@ export {
   type DispatchPromise,
   type DispatchResult,
   type EditorStateSnapshot,
+  type HistoryEffect,
+  type HistoryMode,
+  type HistoryPromise,
+  type HistoryResult,
   type UseEditorStateOptions,
   type UseDispatchOptions,
+  type UseHistoryOptions,
 } from "./hooks"
 export {
   NodeViewContext,

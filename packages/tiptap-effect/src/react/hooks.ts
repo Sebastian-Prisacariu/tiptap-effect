@@ -54,6 +54,33 @@ export type UseDispatchOptions<M extends DispatchMode = "effect"> = {
   readonly mode?: M
 }
 
+export type HistoryMode = DispatchMode
+
+export type HistoryEffect = {
+  readonly undo: () => Effect.Effect<CommandRecord | null, unknown>
+  readonly redo: () => Effect.Effect<CommandRecord | null, unknown>
+  readonly past: ReadonlyArray<CommandRecord>
+  readonly future: ReadonlyArray<CommandRecord>
+}
+
+export type HistoryPromise = {
+  readonly undo: () => Promise<CommandRecord | null>
+  readonly redo: () => Promise<CommandRecord | null>
+  readonly past: ReadonlyArray<CommandRecord>
+  readonly future: ReadonlyArray<CommandRecord>
+}
+
+export type HistoryResult = {
+  readonly undo: () => Promise<Result.Result<CommandRecord | null, unknown>>
+  readonly redo: () => Promise<Result.Result<CommandRecord | null, unknown>>
+  readonly past: ReadonlyArray<CommandRecord>
+  readonly future: ReadonlyArray<CommandRecord>
+}
+
+export type UseHistoryOptions<M extends HistoryMode = "effect"> = {
+  readonly mode?: M
+}
+
 /**
  * Read a slice atom (e.g. `selectionAtom`, `isActiveAtom("bold")`).
  * The slice factory is called with the current scope's `EditorId`.
@@ -303,15 +330,17 @@ export function useDispatch(
  * `past` and `future` are read via `useAtomValue` so the component re-renders
  * exactly when the corresponding history stack changes.
  */
-export const useHistory = (): {
-  readonly undo: () => Effect.Effect<CommandRecord | null, unknown>
-  readonly redo: () => Effect.Effect<CommandRecord | null, unknown>
-  readonly past: ReadonlyArray<CommandRecord>
-  readonly future: ReadonlyArray<CommandRecord>
-} => {
+export function useHistory(): HistoryEffect
+export function useHistory(options: UseHistoryOptions<"effect">): HistoryEffect
+export function useHistory(options: UseHistoryOptions<"promise">): HistoryPromise
+export function useHistory(options: UseHistoryOptions<"result">): HistoryResult
+export function useHistory(
+  options: UseHistoryOptions<HistoryMode> = {},
+): HistoryEffect | HistoryPromise | HistoryResult {
   const { id, atom } = useEditorScope()
   const result = useAtomValue(atom)
   const registry = useRegistry()
+  const mode = options.mode ?? "effect"
 
   const pastResult = useAtomValue(pastRecordsAtom(id))
   const futureResult = useAtomValue(futureRecordsAtom(id))
@@ -346,24 +375,27 @@ export const useHistory = (): {
     }
   }, [result, registry])
 
-  return { ...controls, past, future }
-}
-
-export const useHistoryPromise = (): {
-  readonly undo: () => Promise<Result.Result<CommandRecord | null, unknown>>
-  readonly redo: () => Promise<Result.Result<CommandRecord | null, unknown>>
-  readonly past: ReadonlyArray<CommandRecord>
-  readonly future: ReadonlyArray<CommandRecord>
-} => {
-  const history = useHistory()
   return React.useMemo(
-    () => ({
-      past: history.past,
-      future: history.future,
-      undo: () => effectToResultPromise(history.undo()),
-      redo: () => effectToResultPromise(history.redo()),
-    }),
-    [history],
+    () => {
+      if (mode === "promise") {
+        return {
+          past,
+          future,
+          undo: () => Effect.runPromise(controls.undo()),
+          redo: () => Effect.runPromise(controls.redo()),
+        }
+      }
+      if (mode === "result") {
+        return {
+          past,
+          future,
+          undo: () => effectToResultPromise(controls.undo()),
+          redo: () => effectToResultPromise(controls.redo()),
+        }
+      }
+      return { ...controls, past, future }
+    },
+    [controls, future, mode, past],
   )
 }
 
