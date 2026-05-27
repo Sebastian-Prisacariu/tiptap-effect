@@ -1,18 +1,13 @@
-import { Editor as TiptapEditor, type JSONContent } from "@tiptap/core"
-import type { Extensions } from "@tiptap/core"
+import type { Editor as TiptapEditor } from "@tiptap/core"
 import { Effect } from "effect"
 import { editorRuntime } from "../runtime"
-import type { NodeJSON } from "../schema/define"
-import { decodeInitialContent } from "./internal/decode-initial-content"
 import {
   installTransactionSubscription,
   type TransactionSubscriptionOptions,
 } from "./internal/transaction-subscription"
 import { installEditableSubscription } from "./internal/editable-subscription"
 import { installEditorPropsSubscription } from "./internal/editor-props-subscription"
-import { installEditorFinalizer } from "./internal/finalizer"
 import { makeEditorHandle } from "./internal/handle"
-import { buildEditorExtensions } from "./internal/editor-extensions"
 import { EditorContext } from "./internal/context"
 import {
   EditorInitError,
@@ -20,13 +15,11 @@ import {
   type EditorSchemaMarks,
   type EditorSpec,
 } from "./internal/types"
-import { registerEditorId } from "../internal/editor-ids"
 import {
-  NodeViewStore,
-  registerNodeViewStoreForEditorView,
-  withNodeViewStoreForEditorConstruction,
-} from "./internal/node-view-store"
-import { destroyEditorOnce } from "./internal/destroy-editor"
+  acquireBootedEditor,
+  type ReactiveEditorInputs,
+} from "./internal/booted-editor"
+import type { NodeViewStore } from "./internal/node-view-store"
 
 export {
   EditorInitError,
@@ -60,29 +53,6 @@ export interface EditorHandle {
   }
 }
 
-const createTiptapEditor = <
-  N extends EditorSchemaNodes,
-  M extends EditorSchemaMarks,
->(
-  spec: EditorSpec<N, M>,
-  extensions: Extensions,
-  content: NodeJSON,
-  editable: boolean,
-  editorProps: Record<string, unknown> | undefined,
-  nodeViewStore: NodeViewStore,
-): TiptapEditor =>
-  withNodeViewStoreForEditorConstruction(
-    nodeViewStore,
-    () =>
-      new TiptapEditor({
-        element: null,
-        extensions,
-        editable,
-        content: content as JSONContent,
-        ...(editorProps === undefined ? {} : { editorProps }),
-      }),
-  )
-
 /**
  * Create the atom that owns a single Tiptap editor instance.
  *
@@ -107,18 +77,8 @@ export const makeEditorAtom = <
 >(
   spec: EditorSpec<N, M>,
 ) =>
-  editorRuntime.atom((get) => {
-    let editorRef: TiptapEditor | undefined
-    let nodeViewStoreRef: NodeViewStore | undefined
-
-    get.addFinalizer(() => {
-      nodeViewStoreRef?.dispose()
-      const editor = editorRef
-      if (editor === undefined) return
-      destroyEditorOnce(editor)
-    })
-
-    return Effect.gen(function* () {
+  editorRuntime.atom((get) =>
+    Effect.gen(function* () {
       // extensionsAtom is read with `get(...)` — establishing a reactive
       // dependency so changes trigger a rebuild. editorPropsAtom uses
       // `get.once(...)` — read for the initial value but no dependency,
@@ -134,34 +94,14 @@ export const makeEditorAtom = <
         spec.editableAtom !== undefined
           ? get.once(spec.editableAtom)
           : spec.editable ?? true
+      const reactive: ReactiveEditorInputs = {
+        extensions: reactiveExtensions,
+        editorProps: reactiveEditorProps,
+        editable: initialEditable,
+      }
 
-      const effectiveSpec: EditorSpec<N, M> =
-        reactiveExtensions === undefined
-          ? spec
-          : { ...spec, extensions: reactiveExtensions }
-
-      const content = yield* decodeInitialContent(effectiveSpec)
-      const nodeViewStore = new NodeViewStore()
-      nodeViewStoreRef = nodeViewStore
-      const extensions = yield* buildEditorExtensions(
-        effectiveSpec,
-        nodeViewStore,
-      ).pipe(Effect.mapError((cause) => new EditorInitError({ cause })))
-      const editor = createTiptapEditor(
-        effectiveSpec,
-        extensions,
-        content,
-        initialEditable,
-        reactiveEditorProps,
-        nodeViewStore,
-      )
-      registerEditorId(editor, spec.id)
-      const unregisterNodeViewStore = registerNodeViewStoreForEditorView(
-        editor.view,
-        nodeViewStore,
-      )
-      editorRef = editor
-      get.addFinalizer(unregisterNodeViewStore)
+      const booted = yield* acquireBootedEditor({ spec, reactive })
+      const { editor, nodeViewStore } = booted
 
       return yield* Effect.gen(function* () {
         const subscriptionOptions: TransactionSubscriptionOptions<N, M> = {
@@ -173,9 +113,8 @@ export const makeEditorAtom = <
         )
         yield* installEditableSubscription(spec.editableAtom)
         yield* installEditorPropsSubscription(spec.editorPropsAtom)
-        yield* installEditorFinalizer(nodeViewStore)
 
         return yield* makeEditorHandle(nodeViewStore)
       }).pipe(Effect.provideService(EditorContext, { id: spec.id, editor }))
     })
-  })
+  )
