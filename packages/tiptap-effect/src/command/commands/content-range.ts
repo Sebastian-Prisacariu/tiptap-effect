@@ -1,21 +1,23 @@
-import type { JSONContent } from "@tiptap/core"
-import { Data, Effect, Schema } from "effect"
-import { defineCommand, defineEditorCommand } from "../command"
-import { CurrentEditor } from "../internal/current-editor"
+import type { JSONContent } from "@tiptap/core";
+import { Data, Effect, Schema } from "effect";
+import { defineCommand, defineEditorCommand } from "../command";
+import { CurrentEditor } from "../internal/current-editor";
 
-export class ContentPositionError extends Data.TaggedError("ContentPositionError")<{
-  readonly pos: number
-  readonly message: string
+export class ContentPositionError extends Data.TaggedError(
+  "ContentPositionError",
+)<{
+  readonly pos: number;
+  readonly message: string;
 }> {}
 
 const ContentPatchOutput = Schema.Struct({
   previousContent: Schema.Unknown,
-})
+});
 
 const RangeInput = {
   from: Schema.Number,
   to: Schema.Number,
-}
+};
 
 /**
  * Insert arbitrary Tiptap JSON/string content at a concrete PM document
@@ -34,7 +36,7 @@ export const InsertContentAtCommand = defineEditorCommand({
     chain.insertContentAt(pos, content as JSONContent | string),
   applyReverse: (chain, _input, { previousContent }) =>
     chain.setContent(previousContent as JSONContent),
-})
+});
 
 /**
  * Replace a concrete PM range with arbitrary Tiptap JSON/string content.
@@ -53,7 +55,7 @@ export const ReplaceRangeCommand = defineEditorCommand({
     chain.insertContentAt({ from, to }, content as JSONContent | string),
   applyReverse: (chain, _input, { previousContent }) =>
     chain.setContent(previousContent as JSONContent),
-})
+});
 
 /**
  * Delete a concrete PM range. Undo restores the previous full document JSON.
@@ -67,7 +69,7 @@ export const DeleteRangeCommand = defineEditorCommand({
   apply: (chain, { from, to }) => chain.deleteRange({ from, to }),
   applyReverse: (chain, _input, { previousContent }) =>
     chain.setContent(previousContent as JSONContent),
-})
+});
 
 /**
  * Delete the node starting at a concrete PM position. NodeViews can pair this
@@ -82,29 +84,27 @@ export const DeleteNodeAtCommand = defineCommand({
   outputSchema: ContentPatchOutput,
   forward: ({ pos }) =>
     Effect.gen(function* () {
-      const editor = yield* CurrentEditor
-      const node = editor.state.doc.nodeAt(pos)
+      const editor = yield* CurrentEditor;
+      const node = editor.state.doc.nodeAt(pos);
       if (!node) {
-        return yield* Effect.fail(
-          new ContentPositionError({
-            pos,
-            message: `No node found at position ${pos}`,
-          }),
-        )
+        return yield* new ContentPositionError({
+          pos,
+          message: `No node found at position ${pos}`,
+        });
       }
-      const previousContent = editor.state.doc.toJSON()
+      const previousContent = editor.state.doc.toJSON();
       editor
         .chain()
         .deleteRange({ from: pos, to: pos + node.nodeSize })
-        .run()
-      return { previousContent }
+        .run();
+      return { previousContent };
     }),
   reverse: (_input, { previousContent }) =>
     Effect.gen(function* () {
-      const editor = yield* CurrentEditor
-      editor.commands.setContent(previousContent as JSONContent)
+      const editor = yield* CurrentEditor;
+      editor.commands.setContent(previousContent as JSONContent);
     }),
-})
+});
 
 /**
  * Replace the node starting at a concrete PM position with Tiptap JSON/string
@@ -120,29 +120,32 @@ export const ReplaceNodeAtCommand = defineCommand({
   outputSchema: ContentPatchOutput,
   forward: ({ pos, content }) =>
     Effect.gen(function* () {
-      const editor = yield* CurrentEditor
-      const node = editor.state.doc.nodeAt(pos)
+      const editor = yield* CurrentEditor;
+      const node = editor.state.doc.nodeAt(pos);
       if (!node) {
         return yield* Effect.fail(
           new ContentPositionError({
             pos,
             message: `No node found at position ${pos}`,
           }),
-        )
+        );
       }
-      const previousContent = editor.state.doc.toJSON()
+      const previousContent = editor.state.doc.toJSON();
       editor
         .chain()
-        .insertContentAt({ from: pos, to: pos + node.nodeSize }, content as JSONContent | string)
-        .run()
-      return { previousContent }
+        .insertContentAt(
+          { from: pos, to: pos + node.nodeSize },
+          content as JSONContent | string,
+        )
+        .run();
+      return { previousContent };
     }),
   reverse: (_input, { previousContent }) =>
     Effect.gen(function* () {
-      const editor = yield* CurrentEditor
-      editor.commands.setContent(previousContent as JSONContent)
+      const editor = yield* CurrentEditor;
+      editor.commands.setContent(previousContent as JSONContent);
     }),
-})
+});
 
 /**
  * Merge attrs into the node at a concrete PM document position. Useful for
@@ -163,30 +166,30 @@ export const UpdateNodeAttrsCommand = defineCommand({
   }),
   forward: ({ pos, attrs }) =>
     Effect.gen(function* () {
-      const editor = yield* CurrentEditor
-      const node = editor.state.doc.nodeAt(pos)
+      const editor = yield* CurrentEditor;
+      const node = editor.state.doc.nodeAt(pos);
       if (!node) {
         return yield* Effect.fail(
           new ContentPositionError({
             pos,
             message: `No node found at position ${pos}`,
           }),
-        )
+        );
       }
-      const previousContent = editor.state.doc.toJSON()
-      const previousAttrs = node.attrs
+      const previousContent = editor.state.doc.toJSON();
+      const previousAttrs = node.attrs;
       const tr = editor.state.tr.setNodeMarkup(
         pos,
         undefined,
         { ...node.attrs, ...attrs },
         node.marks,
-      )
-      editor.view.dispatch(tr)
-      return { previousContent, previousAttrs, nodeType: node.type.name }
+      );
+      editor.view.dispatch(tr);
+      return { previousContent, previousAttrs, nodeType: node.type.name };
     }),
   reverse: (_input, { previousContent }) =>
     Effect.gen(function* () {
-      const editor = yield* CurrentEditor
-      editor.commands.setContent(previousContent as JSONContent)
+      const editor = yield* CurrentEditor;
+      editor.commands.setContent(previousContent as JSONContent);
     }),
-})
+});
