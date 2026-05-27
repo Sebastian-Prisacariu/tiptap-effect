@@ -228,4 +228,291 @@ describe("useDispatch result mode + useHistory", () => {
     editorA.commands.setTextSelection({ from: 1, to: 4 })
     expect(editorA.isActive("bold")).toBe(false)
   })
+
+  it("records raw/native document transactions in command history", async () => {
+    let exposed: {
+      history: HistoryResult
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+
+    const Probe: React.FC = () => {
+      exposed = {
+        history: useHistory({ mode: "result" }),
+        editor: useRawEditor({ unsafe: true }),
+      }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-native-history")}
+          editor={LessonEditor}
+          spec={{ defaultContent: validDoc }}
+        >
+          <TiptapView />
+          <Probe />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposed?.editor).not.toBeNull()
+    })
+
+    const editor = exposed!.editor!
+    await act(async () => {
+      editor.commands.setTextSelection({ from: 4, to: 4 })
+      editor.commands.insertContent("X")
+    })
+
+    await waitFor(() => {
+      expect(exposed!.history.past).toHaveLength(1)
+    })
+    expect(editor.getText()).toBe("abcX")
+
+    await act(async () => {
+      const result = await exposed!.history.undo()
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    await waitFor(() => {
+      expect(editor.getText()).toBe("abc")
+      expect(exposed!.history.past).toHaveLength(0)
+      expect(exposed!.history.future).toHaveLength(1)
+    })
+
+    await act(async () => {
+      const result = await exposed!.history.redo()
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    await waitFor(() => {
+      expect(editor.getText()).toBe("abcX")
+      expect(exposed!.history.past).toHaveLength(1)
+    })
+  })
+
+  it("does not double-record command-dispatched document edits", async () => {
+    let exposed: {
+      dispatch: DispatchResult
+      history: HistoryResult
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+
+    const Probe: React.FC = () => {
+      exposed = {
+        dispatch: useDispatch({ mode: "result" }),
+        history: useHistory({ mode: "result" }),
+        editor: useRawEditor({ unsafe: true }),
+      }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-command-no-double-history")}
+          editor={LessonEditor}
+          spec={{ defaultContent: validDoc }}
+        >
+          <TiptapView />
+          <Probe />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposed?.editor).not.toBeNull()
+    })
+
+    await act(async () => {
+      exposed!.editor!.commands.setTextSelection({ from: 4, to: 4 })
+      const result = await exposed!.dispatch(commands.insertText, { text: "X" })
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+
+    await waitFor(() => {
+      expect(exposed!.history.past).toHaveLength(1)
+    })
+  })
+
+  it("keeps fast adjacent native document edits fine-grained", async () => {
+    let exposed: {
+      history: HistoryResult
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+
+    const Probe: React.FC = () => {
+      exposed = {
+        history: useHistory({ mode: "result" }),
+        editor: useRawEditor({ unsafe: true }),
+      }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-native-coalesce")}
+          editor={LessonEditor}
+          spec={{ defaultContent: validDoc }}
+        >
+          <TiptapView />
+          <Probe />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposed?.editor).not.toBeNull()
+    })
+
+    const editor = exposed!.editor!
+    await act(async () => {
+      editor.commands.setTextSelection({ from: 4, to: 4 })
+      editor.commands.insertContent("X")
+      editor.commands.insertContent("Y")
+    })
+
+    await waitFor(() => {
+      expect(editor.getText()).toBe("abcXY")
+      expect(exposed!.history.past).toHaveLength(2)
+    })
+
+    await act(async () => {
+      const result = await exposed!.history.undo()
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    await waitFor(() => {
+      expect(editor.getText()).toBe("abcX")
+    })
+  })
+
+  it("does not create a no-op native undo after typing then deleting", async () => {
+    let exposed: {
+      history: HistoryResult
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+
+    const Probe: React.FC = () => {
+      exposed = {
+        history: useHistory({ mode: "result" }),
+        editor: useRawEditor({ unsafe: true }),
+      }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-native-no-noop")}
+          editor={LessonEditor}
+          spec={{ defaultContent: validDoc }}
+        >
+          <TiptapView />
+          <Probe />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposed?.editor).not.toBeNull()
+    })
+
+    const editor = exposed!.editor!
+    await act(async () => {
+      editor.commands.setTextSelection({ from: 4, to: 4 })
+      editor.commands.insertContent("X")
+      editor.commands.deleteRange({ from: 4, to: 5 })
+    })
+
+    await waitFor(() => {
+      expect(editor.getText()).toBe("abc")
+      expect(exposed!.history.past).toHaveLength(2)
+    })
+
+    await act(async () => {
+      const result = await exposed!.history.undo()
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    await waitFor(() => {
+      expect(editor.getText()).toBe("abcX")
+    })
+  })
+
+  it("orders native edits and commands in one undo stack", async () => {
+    let exposed: {
+      dispatch: DispatchResult
+      history: HistoryResult
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+
+    const Probe: React.FC = () => {
+      exposed = {
+        dispatch: useDispatch({ mode: "result" }),
+        history: useHistory({ mode: "result" }),
+        editor: useRawEditor({ unsafe: true }),
+      }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-native-command-order")}
+          editor={LessonEditor}
+          spec={{ defaultContent: validDoc }}
+        >
+          <TiptapView />
+          <Probe />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposed?.editor).not.toBeNull()
+    })
+
+    const editor = exposed!.editor!
+    await act(async () => {
+      editor.commands.setTextSelection({ from: 4, to: 4 })
+      editor.commands.insertContent("X")
+    })
+    await waitFor(() => expect(exposed!.history.past).toHaveLength(1))
+
+    await act(async () => {
+      editor.commands.setTextSelection({ from: 1, to: 4 })
+      const result = await exposed!.dispatch(ToggleBold, undefined)
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    await waitFor(() => expect(exposed!.history.past).toHaveLength(2))
+
+    await act(async () => {
+      editor.commands.setTextSelection({ from: 5, to: 5 })
+      editor.commands.insertContent("Y")
+    })
+    await waitFor(() => expect(exposed!.history.past).toHaveLength(3))
+    expect(editor.getText()).toBe("abcXY")
+
+    await act(async () => {
+      const result = await exposed!.history.undo()
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    await waitFor(() => expect(editor.getText()).toBe("abcX"))
+    editor.commands.setTextSelection({ from: 1, to: 4 })
+    expect(editor.isActive("bold")).toBe(true)
+
+    await act(async () => {
+      const result = await exposed!.history.undo()
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    editor.commands.setTextSelection({ from: 1, to: 4 })
+    expect(editor.isActive("bold")).toBe(false)
+    expect(editor.getText()).toBe("abcX")
+
+    await act(async () => {
+      const result = await exposed!.history.undo()
+      expect(Result.isSuccess(result)).toBe(true)
+    })
+    await waitFor(() => expect(editor.getText()).toBe("abc"))
+  })
 })

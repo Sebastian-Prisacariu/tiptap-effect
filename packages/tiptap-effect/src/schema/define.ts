@@ -1,4 +1,4 @@
-import { Schema, SchemaAST } from "effect"
+import { Either, Schema, SchemaAST } from "effect"
 import { getSchemaByResolvedExtensions, Mark as TiptapMarkExt, Node as TiptapNodeExt } from "@tiptap/core"
 import type { Extensions } from "@tiptap/core"
 import { Node as ProseMirrorNode, type Schema as ProseMirrorSchema } from "@tiptap/pm/model"
@@ -217,38 +217,34 @@ const buildTiptapMark = <Name extends string, Attrs extends Record<string, unkno
 const validateProseMirrorDocument = (
   pmSchema: ProseMirrorSchema,
   value: unknown,
-): boolean => {
-  try {
+): boolean =>
+  Either.try(() => {
     const node = ProseMirrorNode.fromJSON(pmSchema, value)
     if (node.type !== pmSchema.topNodeType) return false
     node.check()
     return true
-  } catch {
-    return false
-  }
-}
+  }).pipe(Either.getOrElse(() => false))
 
 const partialAttrsSchema = (
   schema: Schema.Schema<Record<string, unknown>>,
 ): Schema.Schema<Partial<Record<string, unknown>>> => {
-  try {
-    return Schema.partial(schema)
-  } catch {
-    let ast = schema.ast
-    while (SchemaAST.isTransformation(ast) || SchemaAST.isRefinement(ast)) {
-      if (SchemaAST.isTransformation(ast)) {
-        ast = ast.from
-      } else {
-        ast = ast.from
-      }
+  const partial = Either.try(() => Schema.partial(schema))
+  if (Either.isRight(partial)) return partial.right
+
+  let ast = schema.ast
+  while (SchemaAST.isTransformation(ast) || SchemaAST.isRefinement(ast)) {
+    if (SchemaAST.isTransformation(ast)) {
+      ast = ast.from
+    } else {
+      ast = ast.from
     }
-    if (!SchemaAST.isTypeLiteral(ast)) {
-      return Schema.Unknown as Schema.Schema<Partial<Record<string, unknown>>>
-    }
-    return Schema.partial(
-      Schema.make<Record<string, unknown>>(ast),
-    ) as Schema.Schema<Partial<Record<string, unknown>>>
   }
+  if (!SchemaAST.isTypeLiteral(ast)) {
+    return Schema.Unknown as Schema.Schema<Partial<Record<string, unknown>>>
+  }
+  return Schema.partial(
+    Schema.make<Record<string, unknown>>(ast),
+  ) as Schema.Schema<Partial<Record<string, unknown>>>
 }
 
 /**

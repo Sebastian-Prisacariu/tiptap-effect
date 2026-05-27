@@ -34,11 +34,7 @@ const parseAttr = (raw: string, ast: SchemaAST.AST): unknown => {
     if (typeof lit === "number") return Number(raw)
     if (typeof lit === "boolean") return raw === "true"
   }
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return raw
-  }
+  return Either.try(() => JSON.parse(raw)).pipe(Either.getOrElse(() => raw))
 }
 
 const drillToInner = (ast: SchemaAST.AST): SchemaAST.AST => {
@@ -118,11 +114,7 @@ export const tiptapAttrsFromSchema = <Fields extends Schema.Struct.Fields>(
         const raw = element.getAttribute(dataAttr)
         if (raw === null) return undefined
         if (isPrimitiveAST(innerAST)) return parseAttr(raw, innerAST)
-        try {
-          return JSON.parse(raw)
-        } catch {
-          return raw
-        }
+        return Either.try(() => JSON.parse(raw)).pipe(Either.getOrElse(() => raw))
       },
       renderHTML: (attributes: Record<string, unknown>) => {
         const value = attributes[key]

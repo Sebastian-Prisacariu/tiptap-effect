@@ -1,4 +1,5 @@
 import type * as React from "react"
+import { Either } from "effect"
 
 const storesByEditorView = new WeakMap<object, NodeViewStore>()
 const constructionStoreStack: Array<NodeViewStore> = []
@@ -165,11 +166,9 @@ export const withNodeViewStoreForEditorConstruction = <A>(
   f: () => A,
 ): A => {
   constructionStoreStack.push(store)
-  try {
-    return f()
-  } finally {
-    constructionStoreStack.pop()
-  }
+  const result = Either.try(f)
+  constructionStoreStack.pop()
+  return Either.getOrThrow(result)
 }
 
 export const addPendingNodeViewEntryForEditorView = (

@@ -24,6 +24,13 @@ import type {
   NodeNameOf,
 } from "../schema/define";
 import { CurrentEditor } from "./internal/current-editor";
+import {
+  capturePreviousDocument,
+  currentDocumentFromState,
+  mergePreviousDocumentOutput,
+  orderMatchesDescending,
+  restoreDocumentSnapshot,
+} from "./internal/document-patch-contract";
 
 type Chain = ReturnType<TiptapEditor["chain"]>;
 
@@ -476,13 +483,12 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
   schema: S,
 ): DocumentCommandAuthoring<S> => {
   const currentFromState = (state: EditorState): DocumentOf<S> =>
-    state.doc.toJSON() as DocumentOf<S>;
+    currentDocumentFromState<DocumentOf<S>>(state);
 
   const capturePreviousContent = (
     state: EditorState,
-  ): PreviousContentOutput<S> => ({
-    previousContent: currentFromState(state),
-  });
+  ): PreviousContentOutput<S> =>
+    capturePreviousDocument<DocumentOf<S>>(state);
 
   const restorePreviousContent = (
     _input: unknown,
@@ -490,7 +496,7 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
   ) =>
     Effect.gen(function* () {
       const editor = yield* CurrentEditor;
-      editor.commands.setContent(previousContent as JSONContent);
+      yield* restoreDocumentSnapshot(editor, previousContent as JSONContent);
     });
 
   const restorePreviousDocument = (
@@ -566,7 +572,7 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
               selection.selector,
               selection.all,
             );
-            const ordered = [...matches].sort((a, b) => b.from - a.from);
+            const ordered = orderMatchesDescending(matches);
             let count: number;
             if (spec.applyMatches) {
               const result = yield* spec.applyMatches({
@@ -613,10 +619,7 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
             const editor = yield* CurrentEditor;
             const output = capturePreviousContent(editor.state);
             const extra = yield* spec.run({ editor, input });
-            if (extra && typeof extra === "object") {
-              return { ...output, ...extra } as PreviousContentOutput<S> & Extra;
-            }
-            return output as PreviousContentOutput<S> & Extra;
+            return mergePreviousDocumentOutput(output, extra);
           }) as Effect.Effect<
             PreviousContentOutput<S> & Extra,
             Err,

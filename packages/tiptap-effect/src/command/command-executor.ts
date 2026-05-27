@@ -15,6 +15,7 @@ import {
 } from "./internal/command-concurrency"
 import { makeCommandRunTracker } from "./internal/command-run-tracker"
 import { makeCommandHistoryNavigation } from "./internal/command-history-navigation"
+import { withCommandOrigin } from "./internal/transaction-origin"
 
 export { CommandBusyError } from "./internal/command-concurrency"
 export type { NotReversibleAttempt } from "./internal/command-history-navigation"
@@ -106,23 +107,31 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         env: Context.Context<Exclude<R, CurrentEditor>>,
       ): CommandRecord => {
         const forwardEffect = (target: TiptapEditor) =>
-          cmd.forward(input).pipe(
-            Effect.provideService(CurrentEditor, target),
-            Effect.flatMap((nextOutput) => decodeOutput(cmd, nextOutput)),
-            Effect.provide(env),
+          withCommandOrigin(
+            target,
+            cmd.op,
+            cmd.forward(input).pipe(
+              Effect.provideService(CurrentEditor, target),
+              Effect.flatMap((nextOutput) => decodeOutput(cmd, nextOutput)),
+              Effect.provide(env),
+            ),
           )
 
         const reverseEffect =
           typeof cmd.reverse === "function"
             ? (target: TiptapEditor, currentOutput: unknown) =>
-                decodeOutput(cmd, currentOutput).pipe(
-                  Effect.flatMap((decodedOutput) =>
-                    cmd.reverse === Reverse.notReversible || cmd.reverse === Reverse.skipOnUndo
-                      ? Effect.void
-                      : cmd.reverse(input, decodedOutput).pipe(
-                          Effect.provideService(CurrentEditor, target),
-                            Effect.provide(env),
-                        ),
+                withCommandOrigin(
+                  target,
+                  cmd.op,
+                  decodeOutput(cmd, currentOutput).pipe(
+                    Effect.flatMap((decodedOutput) =>
+                      cmd.reverse === Reverse.notReversible || cmd.reverse === Reverse.skipOnUndo
+                        ? Effect.void
+                        : cmd.reverse(input, decodedOutput).pipe(
+                            Effect.provideService(CurrentEditor, target),
+                              Effect.provide(env),
+                          ),
+                    ),
                   ),
                 )
             : cmd.reverse
@@ -193,17 +202,23 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
       ): Effect.Effect<Out, Err | CommandValidationError, Exclude<R, CurrentEditor>> =>
         Effect.gen(function* () {
           const validated = yield* decodeInput(cmd, input)
-          const selection = yield* captureSelection(editor, cmd)
-          const rawOutput = yield* cmd.forward(validated).pipe(
-            Effect.provideService(CurrentEditor, editor),
+          return yield* withCommandOrigin(
+            editor,
+            cmd.op,
+            Effect.gen(function* () {
+              const selection = yield* captureSelection(editor, cmd)
+              const rawOutput = yield* cmd.forward(validated).pipe(
+                Effect.provideService(CurrentEditor, editor),
+              )
+              const out = yield* decodeOutput(cmd, rawOutput)
+              const coalesceKey = cmd.coalesceKey ? cmd.coalesceKey(validated) : undefined
+              const env = yield* Effect.context<Exclude<R, CurrentEditor>>()
+              const record = makeRecord(editorId, editor, cmd, validated, out, selection, coalesceKey, Date.now(), env)
+              yield* history.pushCoalesced(editorId, record)
+              yield* navigation.onCommandRecorded(editorId)
+              return out
+            }),
           )
-          const out = yield* decodeOutput(cmd, rawOutput)
-          const coalesceKey = cmd.coalesceKey ? cmd.coalesceKey(validated) : undefined
-          const env = yield* Effect.context<Exclude<R, CurrentEditor>>()
-          const record = makeRecord(editorId, editor, cmd, validated, out, selection, coalesceKey, Date.now(), env)
-          yield* history.pushCoalesced(editorId, record)
-          yield* navigation.onCommandRecorded(editorId)
-          return out
         })
 
       const tracked = <Op extends string, In, Out, Err, R>(
@@ -300,14 +315,20 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
           if (typeof cmd.reverse !== "function") {
             return yield* new NotReversibleError({ op: cmd.op })
           }
-          const rawOutput = yield* cmd.forward(validated).pipe(
-            Effect.provideService(CurrentEditor, editor),
+          return yield* withCommandOrigin(
+            editor,
+            cmd.op,
+            Effect.gen(function* () {
+              const rawOutput = yield* cmd.forward(validated).pipe(
+                Effect.provideService(CurrentEditor, editor),
+              )
+              const out = yield* decodeOutput(cmd, rawOutput)
+              if (typeof cmd.reverse === "function") {
+                yield* cmd.reverse(validated, out).pipe(Effect.provideService(CurrentEditor, editor))
+              }
+              return out
+            }),
           )
-          const out = yield* decodeOutput(cmd, rawOutput)
-          if (typeof cmd.reverse === "function") {
-            yield* cmd.reverse(validated, out).pipe(Effect.provideService(CurrentEditor, editor))
-          }
-          return out
         }))
 
       return {

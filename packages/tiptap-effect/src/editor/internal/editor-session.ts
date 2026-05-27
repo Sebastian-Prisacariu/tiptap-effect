@@ -1,6 +1,7 @@
 import type { Registry } from "@effect-atom/atom"
 import { Effect, Scope } from "effect"
 import { CommandExecutor } from "../../command/command-executor"
+import { CommandHistory } from "../../command/command-history"
 import { TransactionBus } from "../../runtime/internal/transaction-bus"
 import { EditorContext } from "./context"
 import { installEditableSubscription } from "./editable-subscription"
@@ -45,7 +46,7 @@ const installSessionReactivity = <
 ): Effect.Effect<
   void,
   EditorInitError,
-  TransactionBus | Scope.Scope | EditorContext | Registry.AtomRegistry
+  CommandHistory | TransactionBus | Scope.Scope | EditorContext | Registry.AtomRegistry
 > =>
   Effect.gen(function* () {
     const subscriptionOptions: TransactionSubscriptionOptions<N, M> = {
@@ -68,7 +69,7 @@ const bootEditorSession = <
 }: EditorSessionInput<N, M>): Effect.Effect<
   EditorSession,
   EditorInitError,
-  CommandExecutor | TransactionBus | Scope.Scope | Registry.AtomRegistry
+  CommandExecutor | CommandHistory | TransactionBus | Scope.Scope | Registry.AtomRegistry
 > =>
   Effect.gen(function* () {
     const booted = yield* acquireBootedEditor({ spec, reactive })
@@ -97,5 +98,5 @@ export const acquireEditorSession = <
 ): Effect.Effect<
   EditorSession,
   EditorInitError,
-  CommandExecutor | TransactionBus | Scope.Scope | Registry.AtomRegistry
+  CommandExecutor | CommandHistory | TransactionBus | Scope.Scope | Registry.AtomRegistry
 > => bootEditorSession(input)

@@ -1,17 +1,17 @@
 import type { Editor as TiptapEditor } from "@tiptap/core"
+import type { Transaction } from "@tiptap/pm/state"
 import { Effect } from "effect"
+import { CommandHistory } from "../../command/command-history"
 import type { EditorSchema } from "../../schema/define"
 import { TransactionBus } from "../../runtime/internal/transaction-bus"
 import { EditorContext } from "./context"
 import { checkDocumentSchema } from "./document-validation"
+import { makeNativeHistoryRecorder } from "./native-history-recorder"
 import { makeSnapshot } from "./snapshot"
 import type { EditorSchemaMarks, EditorSchemaNodes, SchemaMismatchPolicy } from "./types"
 
 interface TiptapTransactionEvent {
-  readonly transaction: {
-    readonly docChanged: boolean
-    readonly selectionSet: boolean
-  }
+  readonly transaction: Transaction
   readonly editor: TiptapEditor
 }
 
@@ -46,6 +46,7 @@ const installTransactionSubscription = <
     const bus = yield* TransactionBus
     const editorContext = yield* EditorContext
     const snapshotForEditor = yield* makeSnapshot()
+    const recordNativeHistory = yield* makeNativeHistoryRecorder()
     const editor = editorContext.editor
     if (installedSubscriptions.has(editor)) return
 
@@ -65,6 +66,7 @@ const installTransactionSubscription = <
     }
 
     const transactionHandler = (props: TiptapTransactionEvent) => {
+      recordNativeHistory(props)
       const snapshot = snapshotForEditor(props.transaction, props.editor.state)
       Effect.runFork(bus.push(snapshot.editorId, snapshot))
 
