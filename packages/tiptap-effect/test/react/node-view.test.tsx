@@ -22,6 +22,13 @@ const MentionChip: React.FC = () => {
   return <span data-mention-chip data-user-id={attrs.userId}>@{attrs.userId}</span>
 }
 
+const TestContext = React.createContext("missing")
+
+const MentionChipWithContext: React.FC = () => {
+  const value = React.useContext(TestContext)
+  return <span data-context-value>{value}</span>
+}
+
 const MentionNode: NodeDefinition<"mention", MentionAttrs> = {
   name: "mention",
   attrsSchema: Schema.Struct({ userId: Schema.String }),
@@ -38,6 +45,19 @@ const lessonSchema = defineEditorSchema({
     paragraph: ParagraphNode,
     text: TextNode,
     mention: MentionNode,
+  },
+  marks: { bold: BoldMark },
+})
+
+const contextSchema = defineEditorSchema({
+  nodes: {
+    doc: DocNode,
+    paragraph: ParagraphNode,
+    text: TextNode,
+    mention: {
+      ...MentionNode,
+      reactNodeView: MentionChipWithContext,
+    },
   },
   marks: { bold: BoldMark },
 })
@@ -93,6 +113,33 @@ describe("React NodeView (leaf)", () => {
       expect(chip).not.toBeNull()
       expect(chip!.getAttribute("data-user-id")).toBe("alice")
       expect(chip!.textContent).toBe("@alice")
+    })
+  })
+
+  it("can bridge app providers into NodeView roots", async () => {
+    const { container } = render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-nv-provider")}
+          spec={{
+            id: EditorId("ed-nv-provider"),
+            schema: contextSchema,
+            defaultContent: docWithMention,
+          }}
+        >
+          <TiptapView
+            renderNodeViewProviders={(children) => (
+              <TestContext.Provider value="provided">
+                {children}
+              </TestContext.Provider>
+            )}
+          />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-context-value]")?.textContent).toBe("provided")
     })
   })
 })

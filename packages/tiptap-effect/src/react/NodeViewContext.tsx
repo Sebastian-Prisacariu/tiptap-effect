@@ -8,14 +8,16 @@ export const NodeViewContext = React.createContext<NodeViewProps | null>(null)
  * Throws if called outside a NodeView.
  *
  * Returns the typed `attrs` (cast to the consumer's expected shape), the PM
- * `nodeType` name, a `getPos()` function (returns the current position or
- * `undefined` if the node was removed), a `selected` boolean (true when the
- * NodeView is the active node selection), and `unsafe.node` — the raw PM
- * Node — as an escape hatch for node-typed operations not covered by attrs.
+ * `nodeType` name, the current `nodeSize`, a `getPos()` function (returns the
+ * current position or `undefined` if the node was removed), a `selected`
+ * boolean (true when the NodeView is the active node selection), and
+ * `unsafe.node` — the raw PM Node — as an escape hatch for node-typed
+ * operations not covered by attrs.
  */
 export const useNodeViewProps = <Attrs = Record<string, unknown>,>(): {
   readonly attrs: Attrs
   readonly nodeType: string
+  readonly nodeSize: number
   readonly getPos: () => number | undefined
   readonly selected: boolean
   readonly unsafe: { readonly node: unknown }
@@ -27,6 +29,7 @@ export const useNodeViewProps = <Attrs = Record<string, unknown>,>(): {
   return {
     attrs: ctx.nodeAttrs as Attrs,
     nodeType: ctx.nodeType,
+    nodeSize: ctx.nodeSize,
     getPos: ctx.getPos,
     selected: ctx.selected,
     unsafe: { node: ctx.unsafeNode },

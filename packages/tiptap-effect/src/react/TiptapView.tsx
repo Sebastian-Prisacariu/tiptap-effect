@@ -27,8 +27,9 @@ const emptyArray: ReadonlyArray<NodeViewEntry> = Object.freeze([])
  */
 export const TiptapView: React.FC<{
   className?: string
+  renderNodeViewProviders?: (children: React.ReactNode) => React.ReactNode
   style?: React.CSSProperties
-}> = ({ className, style }) => {
+}> = ({ className, renderNodeViewProviders, style }) => {
   const editorScope = useEditorScope()
   const registry = React.useContext(RegistryContext)
   const { atom } = editorScope
@@ -57,6 +58,7 @@ export const TiptapView: React.FC<{
           entry={entry}
           registry={registry}
           editorScope={editorScope}
+          renderNodeViewProviders={renderNodeViewProviders}
           store={store}
         />
       ))}
@@ -68,13 +70,26 @@ const NodeViewRoot: React.FC<{
   entry: NodeViewEntry
   registry: React.ContextType<typeof RegistryContext>
   editorScope: React.ContextType<typeof ScopedEditorContext>
+  renderNodeViewProviders?: (children: React.ReactNode) => React.ReactNode
   store: NodeViewStore | null
-}> = ({ entry, registry, editorScope, store }) => {
+}> = ({ entry, registry, editorScope, renderNodeViewProviders, store }) => {
   const { Component } = entry
   const rootRef = React.useRef<ReactDOMClient.Root | null>(null)
   const rootAliveRef = React.useRef(false)
 
-  const content = (
+  const content = renderNodeViewProviders?.(
+    <RegistryContext.Provider value={registry}>
+      <ScopedEditorContext.Provider value={editorScope}>
+        {entry.props ? (
+          <NodeViewContext.Provider value={entry.props}>
+            <Component {...entry.componentProps} />
+          </NodeViewContext.Provider>
+        ) : (
+          <Component {...entry.componentProps} />
+        )}
+      </ScopedEditorContext.Provider>
+    </RegistryContext.Provider>,
+  ) ?? (
     <RegistryContext.Provider value={registry}>
       <ScopedEditorContext.Provider value={editorScope}>
         {entry.props ? (

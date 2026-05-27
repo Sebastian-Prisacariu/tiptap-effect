@@ -12,6 +12,10 @@ export type {
   NodeDefinition,
   MarkDefinition,
 } from "./node-definition"
+export {
+  defineNodeDefinition,
+  defineMarkDefinition,
+} from "./node-definition"
 export { SelectionInfo } from "./selection"
 export * from "./nodes/index"
 export * from "./marks/index"

@@ -7,6 +7,7 @@ interface TiptapNode {
   readonly type: { readonly name: string }
   readonly attrs: Record<string, unknown>
   readonly isLeaf: boolean
+  readonly nodeSize: number
 }
 
 interface TiptapNodeViewInput {
@@ -50,6 +51,7 @@ const withReactNodeViews = <
             nodeViewStore.update(key, {
               nodeAttrs: currentNode.attrs,
               nodeType: currentNode.type.name,
+              nodeSize: currentNode.nodeSize,
               getPos,
               selected,
               unsafeNode: currentNode,
@@ -65,6 +67,7 @@ const withReactNodeViews = <
             props: {
               nodeAttrs: node.attrs,
               nodeType: node.type.name,
+              nodeSize: node.nodeSize,
               getPos,
               selected,
               unsafeNode: node,

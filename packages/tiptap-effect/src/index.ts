@@ -18,6 +18,10 @@ export type {
   NodeDefinition,
   MarkDefinition,
 } from "./schema/node-definition"
+export {
+  defineNodeDefinition,
+  defineMarkDefinition,
+} from "./schema/node-definition"
 export { SelectionInfo } from "./schema/selection"
 export * as Nodes from "./schema/nodes/index"
 export * as Marks from "./schema/marks/index"
@@ -118,6 +122,7 @@ export {
   useHistoryPromise,
   useCommandPending,
   useCommandErrors,
+  useNodeViewActions,
   useRawEditor,
   useNodeViewProps,
   type ReactDecorationSpec,

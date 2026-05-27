@@ -70,6 +70,81 @@ export const DeleteRangeCommand = defineEditorCommand({
 })
 
 /**
+ * Delete the node starting at a concrete PM position. NodeViews can pair this
+ * with `useNodeViewProps().getPos()` without reaching for the raw editor.
+ */
+export const DeleteNodeAtCommand = defineCommand({
+  op: "tiptap-effect.content.delete-node-at",
+  description: ({ pos }) => `Delete node at ${pos}`,
+  inputSchema: Schema.Struct({
+    pos: Schema.Number,
+  }),
+  outputSchema: ContentPatchOutput,
+  forward: ({ pos }) =>
+    Effect.gen(function* () {
+      const editor = yield* CurrentEditor
+      const node = editor.state.doc.nodeAt(pos)
+      if (!node) {
+        return yield* Effect.fail(
+          new ContentPositionError({
+            pos,
+            message: `No node found at position ${pos}`,
+          }),
+        )
+      }
+      const previousContent = editor.state.doc.toJSON()
+      editor
+        .chain()
+        .deleteRange({ from: pos, to: pos + node.nodeSize })
+        .run()
+      return { previousContent }
+    }),
+  reverse: (_input, { previousContent }) =>
+    Effect.gen(function* () {
+      const editor = yield* CurrentEditor
+      editor.commands.setContent(previousContent as JSONContent)
+    }),
+})
+
+/**
+ * Replace the node starting at a concrete PM position with Tiptap JSON/string
+ * content. Useful for upload placeholders that resolve into media blocks.
+ */
+export const ReplaceNodeAtCommand = defineCommand({
+  op: "tiptap-effect.content.replace-node-at",
+  description: ({ pos }) => `Replace node at ${pos}`,
+  inputSchema: Schema.Struct({
+    pos: Schema.Number,
+    content: Schema.Unknown,
+  }),
+  outputSchema: ContentPatchOutput,
+  forward: ({ pos, content }) =>
+    Effect.gen(function* () {
+      const editor = yield* CurrentEditor
+      const node = editor.state.doc.nodeAt(pos)
+      if (!node) {
+        return yield* Effect.fail(
+          new ContentPositionError({
+            pos,
+            message: `No node found at position ${pos}`,
+          }),
+        )
+      }
+      const previousContent = editor.state.doc.toJSON()
+      editor
+        .chain()
+        .insertContentAt({ from: pos, to: pos + node.nodeSize }, content as JSONContent | string)
+        .run()
+      return { previousContent }
+    }),
+  reverse: (_input, { previousContent }) =>
+    Effect.gen(function* () {
+      const editor = yield* CurrentEditor
+      editor.commands.setContent(previousContent as JSONContent)
+    }),
+})
+
+/**
  * Merge attrs into the node at a concrete PM document position. Useful for
  * agentic/structural edits after a selector has resolved a match to `pos`.
  * Undo restores the previous full document JSON.

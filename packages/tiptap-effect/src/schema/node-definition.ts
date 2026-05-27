@@ -73,3 +73,27 @@ export type TiptapParseRule = unknown
 export type TiptapDOMOutputSpec = unknown
 export type TiptapNode = unknown
 export type TiptapMark = unknown
+
+/**
+ * Identity helper for project-defined nodes. It preserves the literal node
+ * name and attrs type while avoiding noisy `as NodeDefinition<...>` casts in
+ * application schemas.
+ */
+export const defineNodeDefinition = <
+  const Name extends string,
+  const Attrs extends Record<string, unknown>,
+>(
+  definition: NodeDefinition<Name, Attrs>,
+): NodeDefinition<Name, Attrs> => definition
+
+/**
+ * Identity helper for project-defined marks. Use this when an app owns a mark
+ * definition but still wants `defineEditorSchema` to derive strict document
+ * JSON types from the attrs schema.
+ */
+export const defineMarkDefinition = <
+  const Name extends string,
+  const Attrs extends Record<string, unknown>,
+>(
+  definition: MarkDefinition<Name, Attrs>,
+): MarkDefinition<Name, Attrs> => definition

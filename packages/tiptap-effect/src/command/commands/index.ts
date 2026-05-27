@@ -5,7 +5,9 @@ export { SetContentCommand } from "./set-content"
 export {
   ContentPositionError,
   DeleteRangeCommand,
+  DeleteNodeAtCommand,
   InsertContentAtCommand,
+  ReplaceNodeAtCommand,
   ReplaceRangeCommand,
   UpdateNodeAttrsCommand,
 } from "./content-range"
@@ -22,6 +24,7 @@ export {
   type DocumentSelector,
 } from "./document-selector"
 export { SetHeadingCommand } from "./set-heading"
+export { SetParagraphCommand } from "./set-paragraph"
 export { ClearContentCommand } from "./clear-content"
 export { SetLinkCommand } from "./set-link"
 export { MarkSavedCommand } from "./mark-saved"

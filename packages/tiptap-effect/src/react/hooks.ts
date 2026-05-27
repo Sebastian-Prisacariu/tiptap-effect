@@ -16,8 +16,14 @@ import {
   type NotReversibleError,
   type TransactionalRollbackError,
 } from "../command"
+import {
+  DeleteNodeAtCommand,
+  ReplaceNodeAtCommand,
+  UpdateNodeAttrsCommand,
+} from "../command/commands"
 import { editorRuntime } from "../runtime"
 import { useEditorScope } from "./EditorScope"
+import { useNodeViewProps } from "./NodeViewContext"
 import type { EditorId } from "../types"
 
 export class DispatchNotReadyError extends Data.TaggedError("DispatchNotReadyError")<{
@@ -399,6 +405,49 @@ export const useCommandErrors = (
       handlerRef.current(r.value)
     }
   }, [r])
+}
+
+export const useNodeViewActions = <Attrs extends Record<string, unknown> = Record<string, unknown>>(): {
+  readonly updateAttrs: (
+    attrs: Partial<Attrs>,
+  ) => Effect.Effect<unknown, DispatchError<unknown> | Error>
+  readonly deleteNode: () => Effect.Effect<unknown, DispatchError<unknown> | Error>
+  readonly replaceNode: (
+    content: unknown,
+  ) => Effect.Effect<unknown, DispatchError<unknown> | Error>
+} => {
+  const dispatch = useDispatch()
+  const { getPos } = useNodeViewProps<Attrs>()
+
+  const requirePos = React.useCallback((): Effect.Effect<number, Error> =>
+    Effect.sync(() => getPos()).pipe(
+      Effect.flatMap((pos) =>
+        pos === undefined
+          ? Effect.fail(new Error("tiptap-effect: NodeView position is no longer available"))
+          : Effect.succeed(pos),
+      ),
+    ), [getPos])
+
+  return React.useMemo(
+    () => ({
+      updateAttrs: (attrs) =>
+        Effect.flatMap(requirePos(), (pos) =>
+          dispatch(UpdateNodeAttrsCommand, {
+            pos,
+            attrs: attrs as Record<string, unknown>,
+          }),
+        ),
+      deleteNode: () =>
+        Effect.flatMap(requirePos(), (pos) =>
+          dispatch(DeleteNodeAtCommand, { pos }),
+        ),
+      replaceNode: (content) =>
+        Effect.flatMap(requirePos(), (pos) =>
+          dispatch(ReplaceNodeAtCommand, { pos, content }),
+        ),
+    }),
+    [dispatch, requirePos],
+  )
 }
 
 /**

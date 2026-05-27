@@ -20,6 +20,7 @@ export {
   useHistoryPromise,
   useCommandPending,
   useCommandErrors,
+  useNodeViewActions,
   useRawEditor,
   type EditorStateSnapshot,
   type UseEditorStateOptions,

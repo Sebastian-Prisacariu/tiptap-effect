@@ -167,8 +167,9 @@ through React props.
 
 Built-ins cover common toolbar actions and precise document patching:
 `InsertTextCommand`, `InsertContentAtCommand`, `ReplaceRangeCommand`,
-`DeleteRangeCommand`, `UpdateNodeAttrsCommand`, `SetContentCommand`,
-`ClearContentCommand`, `ToggleMarkCommand`, `SetHeadingCommand`,
+`DeleteRangeCommand`, `DeleteNodeAtCommand`, `ReplaceNodeAtCommand`,
+`UpdateNodeAttrsCommand`, `SetContentCommand`, `ClearContentCommand`,
+`ToggleMarkCommand`, `SetHeadingCommand`, `SetParagraphCommand`,
 `SetLinkCommand`, `FocusCommand`, `BlurCommand`, and `MarkSavedCommand`.
 
 ```ts
@@ -196,8 +197,8 @@ logged and emitted through `useCommandErrors`.
 ## NodeViews
 
 Attach a React component to a node definition with `reactNodeView(Component)`.
-Inside the component, `useNodeViewProps<Attrs>()` exposes typed attrs plus
-selection and position helpers. The raw PM node is available only under
+Inside the component, `useNodeViewProps<Attrs>()` exposes typed attrs, node
+size, selection, and position helpers. The raw PM node is available only under
 `unsafe.node`.
 
 ```tsx
@@ -210,3 +211,32 @@ const MentionChip = reactNodeView(() => {
 NodeViews are rendered as portals from `<TiptapView />`, so `RegistryContext`,
 `EditorScope`, `useDispatch`, and `useEditorSlice` all work inside the NodeView
 without passing editor instances through props.
+
+For common structural edits, prefer `useNodeViewActions()` over raw editor
+access. It dispatches Commands under the hood, so updates remain auditable and
+undoable:
+
+```tsx
+const MediaBlock = reactNodeView(() => {
+  const { attrs } = useNodeViewProps<{ title: string }>()
+  const { updateAttrs, deleteNode, replaceNode } = useNodeViewActions()
+
+  return (
+    <button onClick={() => Effect.runPromise(updateAttrs({ title: attrs.title + "!" }))}>
+      Rename
+    </button>
+  )
+})
+```
+
+Project schemas can use `defineNodeDefinition` and `defineMarkDefinition` to
+preserve literal names and strict attrs types without repeating casts:
+
+```ts
+const QuizNode = defineNodeDefinition({
+  name: "quiz",
+  attrsSchema: Schema.Struct({ prompt: Schema.String }),
+  group: "block",
+  atom: true,
+})
+```

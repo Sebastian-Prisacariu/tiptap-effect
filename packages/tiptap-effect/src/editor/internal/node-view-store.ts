@@ -7,6 +7,7 @@ const pendingEntriesByEditorView = new WeakMap<object, Array<NodeViewEntry>>()
 export interface NodeViewProps {
   readonly nodeAttrs: Record<string, unknown>
   readonly nodeType: string
+  readonly nodeSize: number
   readonly getPos: () => number | undefined
   readonly selected: boolean
   /**
@@ -39,6 +40,7 @@ const shallowEqual = (
 const propsEqual = (a: NodeViewProps, b: NodeViewProps): boolean =>
   shallowEqual(a.nodeAttrs, b.nodeAttrs)
   && a.nodeType === b.nodeType
+  && a.nodeSize === b.nodeSize
   && a.getPos === b.getPos
   && a.selected === b.selected
   && a.unsafeNode === b.unsafeNode

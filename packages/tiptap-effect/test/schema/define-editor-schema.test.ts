@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { defineEditorSchema } from "tiptap-effect/schema"
+import { defineEditorSchema, defineMarkDefinition, defineNodeDefinition } from "tiptap-effect/schema"
 import { BoldMark, ItalicMark } from "tiptap-effect/schema"
 import {
   DocNode,
@@ -120,6 +120,40 @@ describe("defineEditorSchema", () => {
       ],
     }
     expect(() => Schema.decodeUnknownSync(lessonSchema.Document)(doc)).not.toThrow()
+  })
+})
+
+describe("definition factories", () => {
+  it("preserve strict custom node and mark declarations", () => {
+    const CalloutNode = defineNodeDefinition({
+      name: "callout",
+      attrsSchema: Schema.Struct({
+        tone: Schema.Literal("info", "warning"),
+      }),
+      group: "block",
+      atom: true,
+    })
+    const LinkMark = defineMarkDefinition({
+      name: "link",
+      attrsSchema: Schema.Struct({
+        href: Schema.String,
+      }),
+    })
+
+    const customSchema = defineEditorSchema({
+      nodes: {
+        doc: DocNode,
+        paragraph: ParagraphNode,
+        text: TextNode,
+        callout: CalloutNode,
+      },
+      marks: {
+        link: LinkMark,
+      },
+    })
+
+    expect(customSchema.nodes.callout.name).toBe("callout")
+    expect(customSchema.marks.link.name).toBe("link")
   })
 })
 
