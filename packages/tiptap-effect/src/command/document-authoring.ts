@@ -3,6 +3,14 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import { Data, Effect, Schema } from "effect";
 import {
+  defineCommand,
+  defineEditorCommand,
+  type CoalescePair,
+  type Command,
+  type ConcurrencyPolicy,
+  type EditorCommand,
+} from "./command";
+import {
   DocumentSelectorError,
   findDocumentMatches,
   type DocumentMatch,
@@ -143,6 +151,11 @@ export type UpdateAttrsAtOutput<S extends AnyEditorSchema> =
   };
 
 export interface DocumentCommandAuthoring<S extends AnyEditorSchema> {
+  /**
+   * Helpers for defining Commands that mutate document content and undo by
+   * restoring the previous typed document.
+   */
+  readonly patch: DocumentPatchAuthoring<S>;
   readonly inputs: {
     readonly setContent: Schema.Schema<SetContentInput<S>>;
     readonly insertContentAt: Schema.Schema<InsertContentAtInput<S>>;
@@ -218,6 +231,130 @@ export interface DocumentCommandAuthoring<S extends AnyEditorSchema> {
   readonly updateNodeAttrsBySelector: (
     input: UpdateNodeAttrsBySelectorInput<S>,
   ) => Effect.Effect<SelectorPatchOutput<S>, DocumentSelectorError, CurrentEditor>;
+  readonly selectMatches: (
+    doc: ProseMirrorNode,
+    selector: DocumentSelector,
+    all?: boolean,
+  ) => Effect.Effect<ReadonlyArray<DocumentMatch>, DocumentSelectorError>;
+  readonly applyReplaceMatches: (
+    input: SelectorReplaceInput<S>,
+  ) => Effect.Effect<number, DocumentSelectorError, CurrentEditor>;
+  readonly applyDeleteMatches: (
+    input: SelectorManyInput<S>,
+  ) => Effect.Effect<number, DocumentSelectorError, CurrentEditor>;
+}
+
+type Description<In> = (input: In) => string;
+
+export interface BaseDocumentPatchSpec<Op extends string, In> {
+  /** Stable operation id stored in command history and error events. */
+  readonly op: Op;
+  /** Human-readable description for history/debug UIs. */
+  readonly description: Description<In>;
+  /** Runtime input validation for the patch command. */
+  readonly inputSchema: Schema.Schema<In>;
+}
+
+export interface EditorDocumentPatchSpec<
+  S extends AnyEditorSchema,
+  Op extends string,
+  In,
+> extends BaseDocumentPatchSpec<Op, In> {
+  /** Tiptap chain mutation to run after the previous document is captured. */
+  readonly apply: (chain: Chain, input: In) => Chain;
+  readonly capturesSelection?: boolean;
+  readonly coalesceKey?: (input: In) => string;
+  readonly concurrencyPolicy?: ConcurrencyPolicy;
+  readonly transactional?: boolean;
+  readonly coalesce?: (
+    prev: CoalescePair<In, PreviousContentOutput<S>>,
+    next: CoalescePair<In, PreviousContentOutput<S>>,
+  ) => CoalescePair<In, PreviousContentOutput<S>> | null;
+}
+
+export interface EffectDocumentPatchSpec<Op extends string, In, Err>
+  extends BaseDocumentPatchSpec<Op, In> {
+  /** Effectful document mutation to run after the previous document is captured. */
+  readonly apply: (input: In) => Effect.Effect<void, Err, CurrentEditor>;
+  readonly concurrencyPolicy?: ConcurrencyPolicy;
+  readonly transactional?: boolean;
+}
+
+export interface SelectorDocumentPatchSpec<Op extends string, In, Err>
+  extends BaseDocumentPatchSpec<Op, In> {
+  /** Effectful selector mutation. Return the number of patched nodes. */
+  readonly apply: (input: In) => Effect.Effect<number, Err, CurrentEditor>;
+  readonly concurrencyPolicy?: ConcurrencyPolicy;
+  readonly transactional?: boolean;
+}
+
+/**
+ * Public authoring helpers for schema-bound document patches.
+ *
+ * A document patch is a Command that mutates the editor document and records
+ * the previous typed document as its undo output. This keeps the common
+ * reversible-document-command contract in one module: capture previous
+ * content before mutation, validate the output shape, and restore that content
+ * on reverse.
+ */
+export interface DocumentPatchAuthoring<S extends AnyEditorSchema> {
+  /** Read the current editor document as the schema-bound document type. */
+  readonly currentFromState: (state: EditorState) => DocumentOf<S>;
+  /** Capture the current document for a future undo restore. */
+  readonly capturePreviousContent: (
+    state: EditorState,
+  ) => PreviousContentOutput<S>;
+  /** Restore a previously captured document from an Effect command reverse. */
+  readonly restorePreviousContent: (
+    input: unknown,
+    output: PreviousContentOutput<S>,
+  ) => Effect.Effect<void, never, CurrentEditor>;
+  /** Restore a previously captured document from a Tiptap chain reverse. */
+  readonly applyRestorePreviousContent: (
+    chain: Chain,
+    input: unknown,
+    output: PreviousContentOutput<S>,
+  ) => Chain;
+  /**
+   * Build a reversible EditorCommand from a Tiptap chain mutation.
+   *
+   * Use this when the patch can be expressed as `chain.*`; the helper supplies
+   * previous-content output, capture, and restore.
+   */
+  readonly editorCommand: <Op extends string, In>(
+    spec: EditorDocumentPatchSpec<S, Op, In>,
+  ) => EditorCommand<Op, In, PreviousContentOutput<S>>;
+  /**
+   * Build a reversible Command from an Effectful document mutation.
+   *
+   * Use this when the patch needs direct editor/state access or custom errors.
+   */
+  readonly command: <Op extends string, In, Err = never>(
+    spec: EffectDocumentPatchSpec<Op, In, Err>,
+  ) => Command<Op, In, PreviousContentOutput<S>, Err, CurrentEditor>;
+  /**
+   * Build a reversible selector patch Command.
+   *
+   * The mutation returns the number of changed nodes; the command output is
+   * `{ previousContent, count }`.
+   */
+  readonly selectorCommand: <Op extends string, In, Err = DocumentSelectorError>(
+    spec: SelectorDocumentPatchSpec<Op, In, Err>,
+  ) => Command<Op, In, SelectorPatchOutput<S>, Err, CurrentEditor>;
+  /** Find selector matches or fail when none match. Respects `all`. */
+  readonly selectMatches: (
+    doc: ProseMirrorNode,
+    selector: DocumentSelector,
+    all?: boolean,
+  ) => Effect.Effect<ReadonlyArray<DocumentMatch>, DocumentSelectorError>;
+  /** Replace matching nodes and return the number of replacements. */
+  readonly applyReplaceMatches: (
+    input: SelectorReplaceInput<S>,
+  ) => Effect.Effect<number, DocumentSelectorError, CurrentEditor>;
+  /** Delete matching nodes and return the number of deletions. */
+  readonly applyDeleteMatches: (
+    input: SelectorManyInput<S>,
+  ) => Effect.Effect<number, DocumentSelectorError, CurrentEditor>;
 }
 
 const selectorBaseFields = {
@@ -412,15 +549,107 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
 
   const inputs = makeInputs(schema);
   const outputs = makeOutputs(schema);
-
-  return {
-    inputs,
-    outputs,
+  const applyReplaceMatches = ({ selector, content, all }: SelectorReplaceInput<S>) =>
+    Effect.gen(function* () {
+      const editor = yield* CurrentEditor;
+      const matches = yield* selectMatches(
+        editor.state.doc,
+        selector as DocumentSelector,
+        all,
+      );
+      for (const match of [...matches].sort((a, b) => b.from - a.from)) {
+        editor.commands.insertContentAt(
+          { from: match.from, to: match.to },
+          content as JSONContent | string,
+        );
+      }
+      return matches.length;
+    });
+  const applyDeleteMatches = ({ selector, all }: SelectorManyInput<S>) =>
+    Effect.gen(function* () {
+      const editor = yield* CurrentEditor;
+      const matches = yield* selectMatches(
+        editor.state.doc,
+        selector as DocumentSelector,
+        all,
+      );
+      for (const match of [...matches].sort((a, b) => b.from - a.from)) {
+        editor.commands.deleteRange({ from: match.from, to: match.to });
+      }
+      return matches.length;
+    });
+  const makeEditorPatchCommand = <Op extends string, In>(
+    spec: EditorDocumentPatchSpec<S, Op, In>,
+  ): EditorCommand<Op, In, PreviousContentOutput<S>> =>
+    defineEditorCommand<Op, In, PreviousContentOutput<S>>({
+      op: spec.op,
+      description: spec.description,
+      inputSchema: spec.inputSchema,
+      outputSchema: outputs.previousContent,
+      reverseSetup: capturePreviousContent,
+      apply: spec.apply,
+      applyReverse: (chain, input, output) =>
+        patch.applyRestorePreviousContent(chain, input, output),
+      capturesSelection: spec.capturesSelection,
+      coalesceKey: spec.coalesceKey,
+      coalesce: spec.coalesce,
+      concurrencyPolicy: spec.concurrencyPolicy,
+      transactional: spec.transactional,
+    });
+  const patch: DocumentPatchAuthoring<S> = {
     currentFromState,
     capturePreviousContent,
     restorePreviousContent,
     applyRestorePreviousContent: (chain, _input, { previousContent }) =>
       chain.setContent(previousContent as JSONContent),
+    editorCommand: makeEditorPatchCommand,
+    command: (spec) =>
+      defineCommand({
+        op: spec.op,
+        description: spec.description,
+        inputSchema: spec.inputSchema,
+        outputSchema: outputs.previousContent,
+        forward: (input) =>
+          Effect.gen(function* () {
+            const editor = yield* CurrentEditor;
+            const output = capturePreviousContent(editor.state);
+            yield* spec.apply(input);
+            return output;
+          }),
+        reverse: restorePreviousContent,
+        concurrencyPolicy: spec.concurrencyPolicy,
+        transactional: spec.transactional,
+      }),
+    selectorCommand: (spec) =>
+      defineCommand({
+        op: spec.op,
+        description: spec.description,
+        inputSchema: spec.inputSchema,
+        outputSchema: outputs.patch,
+        forward: (input) =>
+          Effect.gen(function* () {
+            const editor = yield* CurrentEditor;
+            const output = capturePreviousContent(editor.state);
+            const count = yield* spec.apply(input);
+            return { ...output, count };
+          }),
+        reverse: restorePreviousContent,
+        concurrencyPolicy: spec.concurrencyPolicy,
+        transactional: spec.transactional,
+      }),
+    selectMatches,
+    applyReplaceMatches,
+    applyDeleteMatches,
+  };
+
+  return {
+    patch,
+    inputs,
+    outputs,
+    currentFromState,
+    capturePreviousContent,
+    restorePreviousContent,
+    applyRestorePreviousContent: patch.applyRestorePreviousContent,
     setContent: ({ content }) =>
       Effect.gen(function* () {
         const editor = yield* CurrentEditor;
@@ -535,6 +764,9 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
           selector as DocumentSelector,
         );
       }),
+    selectMatches,
+    applyReplaceMatches,
+    applyDeleteMatches,
     insertContentAtMatch: ({ selector, content, at = "after" }) =>
       Effect.gen(function* () {
         const editor = yield* CurrentEditor;
@@ -560,32 +792,15 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
       Effect.gen(function* () {
         const editor = yield* CurrentEditor;
         const output = previous(editor);
-        const matches = yield* selectMatches(
-          editor.state.doc,
-          selector as DocumentSelector,
-          all,
-        );
-        for (const match of [...matches].sort((a, b) => b.from - a.from)) {
-          editor.commands.insertContentAt(
-            { from: match.from, to: match.to },
-            content as JSONContent | string,
-          );
-        }
-        return { ...output, count: matches.length };
+        const count = yield* applyReplaceMatches({ selector, content, all });
+        return { ...output, count };
       }),
     deleteMatches: ({ selector, all }) =>
       Effect.gen(function* () {
         const editor = yield* CurrentEditor;
         const output = previous(editor);
-        const matches = yield* selectMatches(
-          editor.state.doc,
-          selector as DocumentSelector,
-          all,
-        );
-        for (const match of [...matches].sort((a, b) => b.from - a.from)) {
-          editor.commands.deleteRange({ from: match.from, to: match.to });
-        }
-        return { ...output, count: matches.length };
+        const count = yield* applyDeleteMatches({ selector, all });
+        return { ...output, count };
       }),
     updateNodeAttrsBySelector: ({ selector, attrs, all }) =>
       Effect.gen(function* () {

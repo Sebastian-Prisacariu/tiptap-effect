@@ -274,28 +274,32 @@ Built-ins cover common toolbar actions and precise document patching:
 
 ```ts
 const LessonEditor = createEditor(lessonSchema, {
-  commands: ({ editorCommand, document }) => ({
-    insertCallout: editorCommand({
+  commands: ({ document }) => ({
+    insertCallout: document.patch.editorCommand({
       op: "lesson.callout.insert",
       description: () => "Insert callout",
       inputSchema: Schema.Struct({
         title: Schema.String,
         tone: Schema.Literal("info", "warning"),
       }),
-      outputSchema: document.outputs.previousContent,
       capturesSelection: true,
-      reverseSetup: document.capturePreviousContent,
       apply: (chain, input) =>
         chain.insertContent({
           type: "callout",
           attrs: { title: input.title, tone: input.tone },
           content: [{ type: "text", text: input.title }],
         }),
-      applyReverse: document.applyRestorePreviousContent,
     }),
   }),
 })
 ```
+
+`document.patch` is the authoring surface for custom commands that change the
+document and should undo by restoring the previous typed document. Use
+`document.patch.editorCommand` for Tiptap chain mutations, `document.patch.command`
+when the patch needs direct editor/state access, and
+`document.patch.selectorCommand` when the patch works through typed document
+selectors and should return `{ previousContent, count }`.
 
 Custom commands appear on the same object as the built-ins:
 

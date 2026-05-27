@@ -7,17 +7,21 @@ import {
   type Command,
   type EditorCommand,
 } from "./command";
-import { DocumentSelectorError, type DocumentMatch } from "../document/selector";
+import {
+  DocumentSelectorError,
+  type DocumentMatch,
+  type DocumentSelector,
+} from "../document/selector";
 import { CurrentEditor } from "./internal/current-editor";
 import { DirtyTracker } from "../dirty/internal/tracker";
 import type { AnyEditorSchema, DocumentOf } from "../schema/define";
 import type { EditorId } from "../types";
 import {
   makeDocumentCommandAuthoring,
-  type ContentPositionError,
+  ContentPositionError,
   type DeleteRangeInput,
   type DocumentCommandAuthoring,
-  type EditorCommandError,
+  EditorCommandError,
   type InsertContentAtInput,
   type PreviousContentOutput,
   type ReplaceNodeAtInput,
@@ -37,6 +41,11 @@ export {
   ContentPositionError,
   EditorCommandError,
   type DocumentCommandAuthoring,
+  type DocumentPatchAuthoring,
+  type BaseDocumentPatchSpec,
+  type EditorDocumentPatchSpec,
+  type EffectDocumentPatchSpec,
+  type SelectorDocumentPatchSpec,
   type PreviousContentOutput,
   type SelectorPatchOutput,
   type TypedNodeSelector,
@@ -217,9 +226,7 @@ export interface EditorCommandFactoryContext<S extends AnyEditorSchema> {
 
 export class EditorCommandCollisionError extends Error {
   constructor(readonly keys: ReadonlyArray<string>) {
-    super(
-      `Editor command keys collide with built-ins: ${keys.join(", ")}`,
-    );
+    super(`Editor command keys collide with built-ins: ${keys.join(", ")}`);
     this.name = "EditorCommandCollisionError";
   }
 }
@@ -263,6 +270,7 @@ export const defineEditorCommands = <
   options: EditorCommandOptions<S, Custom> = {},
 ): EditorCommands<S> & Custom => {
   const document = makeDocumentCommandAuthoring(schema);
+  const patch = document.patch;
 
   const builtIns: EditorCommands<S> = {
     toggleMark: (markName: string) =>
@@ -491,73 +499,85 @@ export const defineEditorCommands = <
           }),
         reverse: Reverse.skipOnUndo,
       }),
-    setContent: defineEditorCommand({
+    setContent: patch.editorCommand({
       op: "tiptap-effect.set-content",
       description: () => "Replace document content",
       inputSchema: document.inputs.setContent,
-      outputSchema: document.outputs.previousContent,
       apply: (chain, { content }) => chain.setContent(content as JSONContent),
-      reverseSetup: document.capturePreviousContent,
-      applyReverse: document.applyRestorePreviousContent,
     }),
-    clearContent: defineEditorCommand({
+    clearContent: patch.editorCommand({
       op: "tiptap-effect.clear-content",
       description: () => "Clear document",
       inputSchema: Schema.Void,
-      outputSchema: document.outputs.previousContent,
       apply: (chain, _input) => chain.clearContent(true),
-      reverseSetup: document.capturePreviousContent,
-      applyReverse: document.applyRestorePreviousContent,
     }),
-    insertContentAt: defineEditorCommand({
+    insertContentAt: patch.editorCommand({
       op: "tiptap-effect.content.insert-at",
       description: ({ pos }) => `Insert content at ${pos}`,
       inputSchema: document.inputs.insertContentAt,
-      outputSchema: document.outputs.previousContent,
-      reverseSetup: document.capturePreviousContent,
       apply: (chain, { pos, content }) =>
         chain.insertContentAt(pos, content as JSONContent | string),
-      applyReverse: document.applyRestorePreviousContent,
     }),
-    replaceRange: defineEditorCommand({
+    replaceRange: patch.editorCommand({
       op: "tiptap-effect.content.replace-range",
       description: ({ from, to }) => `Replace range ${from}-${to}`,
       inputSchema: document.inputs.replaceRange,
-      outputSchema: document.outputs.previousContent,
-      reverseSetup: document.capturePreviousContent,
       apply: (chain, { from, to, content }) =>
         chain.insertContentAt({ from, to }, content as JSONContent | string),
-      applyReverse: document.applyRestorePreviousContent,
     }),
-    deleteRange: defineEditorCommand({
+    deleteRange: patch.editorCommand({
       op: "tiptap-effect.content.delete-range",
       description: ({ from, to }) => `Delete range ${from}-${to}`,
       inputSchema: Schema.Struct({
         from: Schema.Number,
         to: Schema.Number,
       }),
-      outputSchema: document.outputs.previousContent,
-      reverseSetup: document.capturePreviousContent,
       apply: (chain, { from, to }) => chain.deleteRange({ from, to }),
-      applyReverse: document.applyRestorePreviousContent,
     }),
-    deleteNodeAt: defineCommand({
+    deleteNodeAt: patch.command({
       op: "tiptap-effect.content.delete-node-at",
       description: ({ pos }) => `Delete node at ${pos}`,
       inputSchema: Schema.Struct({
         pos: Schema.Number,
       }),
-      outputSchema: document.outputs.previousContent,
-      forward: document.deleteNodeAt,
-      reverse: document.restorePreviousContent,
+      apply: ({ pos }) =>
+        Effect.gen(function* () {
+          const editor = yield* CurrentEditor;
+          const node = editor.state.doc.nodeAt(pos);
+          if (!node) {
+            return yield* new ContentPositionError({
+              pos,
+              message: `No node found at position ${pos}`,
+            });
+          }
+          editor
+            .chain()
+            .deleteRange({ from: pos, to: pos + node.nodeSize })
+            .run();
+        }),
     }),
-    replaceNodeAt: defineCommand({
+    replaceNodeAt: patch.command({
       op: "tiptap-effect.content.replace-node-at",
       description: ({ pos }) => `Replace node at ${pos}`,
       inputSchema: document.inputs.replaceNodeAt,
-      outputSchema: document.outputs.previousContent,
-      forward: document.replaceNodeAt,
-      reverse: document.restorePreviousContent,
+      apply: ({ pos, content }) =>
+        Effect.gen(function* () {
+          const editor = yield* CurrentEditor;
+          const node = editor.state.doc.nodeAt(pos);
+          if (!node) {
+            return yield* new ContentPositionError({
+              pos,
+              message: `No node found at position ${pos}`,
+            });
+          }
+          editor
+            .chain()
+            .insertContentAt(
+              { from: pos, to: pos + node.nodeSize },
+              content as JSONContent | string,
+            )
+            .run();
+        }),
     }),
     updateNodeAttrsAt: defineCommand({
       op: "tiptap-effect.content.update-node-attrs",
@@ -567,30 +587,43 @@ export const defineEditorCommands = <
       forward: document.updateNodeAttrsAt,
       reverse: document.restorePreviousContent,
     }),
-    insertContentAtMatch: defineCommand({
+    insertContentAtMatch: patch.selectorCommand({
       op: "tiptap-effect.selector.insert-at-match",
       description: ({ selector, at = "after" }) =>
         `Insert content ${at} selector ${selector.type ?? "*"}`,
       inputSchema: document.inputs.selectorInsert,
-      outputSchema: document.outputs.patch,
-      forward: document.insertContentAtMatch,
-      reverse: document.restorePreviousContent,
+      apply: ({ selector, content, at = "after" }) =>
+        Effect.gen(function* () {
+          const editor = yield* CurrentEditor;
+          const matches = yield* patch.selectMatches(
+            editor.state.doc,
+            selector as DocumentSelector,
+            false,
+          );
+          const match = matches[0]!;
+          const pos =
+            at === "before"
+              ? match.from
+              : at === "after"
+                ? match.to
+                : at === "start"
+                  ? match.from + 1
+                  : match.to - 1;
+          editor.commands.insertContentAt(pos, content as JSONContent | string);
+          return 1;
+        }),
     }),
-    replaceMatches: defineCommand({
+    replaceMatches: patch.selectorCommand({
       op: "tiptap-effect.selector.replace",
       description: ({ selector }) => `Replace selector ${selector.type ?? "*"}`,
       inputSchema: document.inputs.selectorReplace,
-      outputSchema: document.outputs.patch,
-      forward: document.replaceMatches,
-      reverse: document.restorePreviousContent,
+      apply: patch.applyReplaceMatches,
     }),
-    deleteMatches: defineCommand({
+    deleteMatches: patch.selectorCommand({
       op: "tiptap-effect.selector.delete",
       description: ({ selector }) => `Delete selector ${selector.type ?? "*"}`,
       inputSchema: document.inputs.selectorMany,
-      outputSchema: document.outputs.patch,
-      forward: document.deleteMatches,
-      reverse: document.restorePreviousContent,
+      apply: patch.applyDeleteMatches,
     }),
     updateNodeAttrsBySelector: defineCommand({
       op: "tiptap-effect.selector.update-node-attrs",

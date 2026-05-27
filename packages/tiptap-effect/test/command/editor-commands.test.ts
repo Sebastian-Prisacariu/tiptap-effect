@@ -15,23 +15,18 @@ const lessonSchema = defineEditorSchema({
 
 const commands = defineEditorCommands(lessonSchema)
 const customCommands = defineEditorCommands(lessonSchema, {
-  commands: ({ command, editorCommand, document }) => ({
-    replaceBySelector: command({
+  commands: ({ document }) => ({
+    replaceBySelector: document.patch.selectorCommand({
       op: "test.replace-by-selector",
       description: () => "Replace by selector",
       inputSchema: document.inputs.selectorReplace,
-      outputSchema: document.outputs.patch,
-      forward: document.replaceMatches,
-      reverse: document.restorePreviousContent,
+      apply: document.patch.applyReplaceMatches,
     }),
-    appendBang: editorCommand({
+    appendBang: document.patch.editorCommand({
       op: "test.append-bang",
       description: () => "Append bang",
       inputSchema: Schema.Void,
-      outputSchema: document.outputs.previousContent,
-      reverseSetup: document.capturePreviousContent,
       apply: (chain) => chain.insertContent("!"),
-      applyReverse: document.applyRestorePreviousContent,
     }),
   }),
 })
@@ -188,7 +183,7 @@ describe("editor commands", () => {
     expect(editor.getText()).toBe("loose")
   })
 
-  it("custom command can use document.replaceMatches and undo restores", async () => {
+  it("custom command can use document.patch.selectorCommand and undo restores", async () => {
     const editor = await mountEditor("editor-commands-custom-document-command")
     const before = editor.getJSON()
 
@@ -211,7 +206,7 @@ describe("editor commands", () => {
     expect(editor.getJSON()).toEqual(before)
   })
 
-  it("custom editorCommand can use document snapshot helpers and undo restores", async () => {
+  it("custom editorCommand can use document.patch.editorCommand and undo restores", async () => {
     const editor = await mountEditor("editor-commands-custom-editor-command")
     const before = editor.getJSON()
     editor.commands.setTextSelection(4)
