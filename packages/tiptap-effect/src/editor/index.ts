@@ -2,23 +2,13 @@ import type { Editor as TiptapEditor } from "@tiptap/core"
 import { Effect } from "effect"
 import { editorRuntime } from "../runtime"
 import {
-  installTransactionSubscription,
-  type TransactionSubscriptionOptions,
-} from "./internal/transaction-subscription"
-import { installEditableSubscription } from "./internal/editable-subscription"
-import { installEditorPropsSubscription } from "./internal/editor-props-subscription"
-import { makeEditorHandle } from "./internal/handle"
-import { EditorContext } from "./internal/context"
-import {
   EditorInitError,
   type EditorSchemaNodes,
   type EditorSchemaMarks,
   type EditorSpec,
 } from "./internal/types"
-import {
-  acquireBootedEditor,
-  type ReactiveEditorInputs,
-} from "./internal/booted-editor"
+import type { ReactiveEditorInputs } from "./internal/booted-editor"
+import { acquireEditorSession } from "./internal/editor-session"
 import type { NodeViewStore } from "./internal/node-view-store"
 
 export {
@@ -99,22 +89,7 @@ export const makeEditorAtom = <
         editorProps: reactiveEditorProps,
         editable: initialEditable,
       }
-
-      const booted = yield* acquireBootedEditor({ spec, reactive })
-      const { editor, nodeViewStore } = booted
-
-      return yield* Effect.gen(function* () {
-        const subscriptionOptions: TransactionSubscriptionOptions<N, M> = {
-          onSchemaMismatch: spec.onSchemaMismatch ?? "log",
-          schema: spec.schema,
-        }
-        yield* installTransactionSubscription(subscriptionOptions).pipe(
-          Effect.mapError((cause) => new EditorInitError({ cause })),
-        )
-        yield* installEditableSubscription(spec.editableAtom)
-        yield* installEditorPropsSubscription(spec.editorPropsAtom)
-
-        return yield* makeEditorHandle(nodeViewStore)
-      }).pipe(Effect.provideService(EditorContext, { id: spec.id, editor }))
+      const session = yield* acquireEditorSession({ spec, reactive })
+      return session.handle
     })
   )
