@@ -1,30 +1,23 @@
 import type { Editor as TiptapEditor } from "@tiptap/core"
-import { Context, Data, Effect, Either, Fiber, Layer, PubSub, Ref, Schema, Stream, SubscriptionRef } from "effect"
-import type { Step } from "@tiptap/pm/transform"
+import { Context, Data, Effect, Either, Layer, Schema } from "effect"
 import { type Command, CommandValidationError, NotReversibleError, Reverse } from "./command"
-import { CommandHistory, type CommandRecord, getReverseFn, reverseKind } from "./command-history"
+import { CommandHistory, type CommandRecord } from "./command-history"
 import { CurrentEditor } from "./internal/current-editor"
-import {
-  clearContext,
-  installDispatchWrapper,
-  replayInversions,
-  setContext,
-  type TransactionalRollbackError,
-} from "./internal/transactional-rollback"
+import type { TransactionalRollbackError } from "./internal/transactional-rollback"
 import { projectSelection } from "../internal/project-selection"
 import type { SelectionInfo } from "../schema/selection"
 import type { EditorId } from "../types"
 import { getEditorId } from "../internal/editor-ids"
 import { CommandErrorHandler, type CommandFailed } from "./command-error-handler"
+import {
+  CommandBusyError,
+  makeCommandConcurrency,
+} from "./internal/command-concurrency"
+import { makeCommandRunTracker } from "./internal/command-run-tracker"
+import { makeCommandHistoryNavigation } from "./internal/command-history-navigation"
 
-/**
- * Event emitted on the first Cmd-Z against a Reverse.notReversible entry.
- */
-export interface NotReversibleAttempt {
-  readonly editorId: EditorId
-  readonly op: string
-  readonly at: number
-}
+export { CommandBusyError } from "./internal/command-concurrency"
+export type { NotReversibleAttempt } from "./internal/command-history-navigation"
 
 /**
  * Raised when `CommandExecutor.replay(record, { strict: true })` re-runs a
@@ -42,22 +35,6 @@ export class ReplayDivergenceError extends Data.TaggedError(
 }> {}
 
 /**
- * Raised when a Command with `concurrencyPolicy: "block-while-pending"` (the
- * default) is dispatched while a same-op command is already in flight.
- */
-export class CommandBusyError extends Data.TaggedError("CommandBusyError")<{
-  readonly op: string
-}> {}
-
-const A3_TOGGLE_WINDOW_MS = 3000
-
-let cmdIdCounter = 0
-const nextCmdId = (op: string): string => `${op}-${Date.now()}-${cmdIdCounter++}`
-const commandKey = (editorId: EditorId, op: string): string => `${editorId}\u0000${op}`
-
-type A3State = { readonly op: string; readonly at: number }
-
-/**
  * Executes Commands with input validation, runs forward + reverse against a
  * provided editor, manages CommandHistory + the A3 (notReversible) toggle,
  * implements the four concurrency policies (block-while-pending / queue /
@@ -72,29 +49,12 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
     effect: Effect.gen(function* () {
       const history = yield* CommandHistory
       const errorHandler = yield* CommandErrorHandler
-      const a3State = yield* Ref.make<ReadonlyMap<EditorId, A3State>>(new Map())
-      const notReversibleEvents = yield* PubSub.unbounded<NotReversibleAttempt>()
-      const pendingOps = yield* SubscriptionRef.make<ReadonlyMap<EditorId, ReadonlySet<string>>>(new Map())
-      const emptyPendingOps: ReadonlySet<string> = new Set()
-      const perOpFibers = yield* Ref.make<ReadonlyMap<string, Fiber.RuntimeFiber<unknown, unknown>>>(
-        new Map(),
-      )
-      // Per-op semaphore registry. Held in a Ref so concurrent dispatches
-      // can resolve their semaphore in one atomic check-and-create
-      // (Ref.modify), avoiding the read-then-write race the previous plain
-      // `Map` had under parallel queued dispatches.
-      const semaphores = yield* Ref.make<ReadonlyMap<string, Effect.Semaphore>>(
-        new Map(),
-      )
-      const transactionalSemaphores = yield* Ref.make<
-        ReadonlyMap<EditorId, Effect.Semaphore>
-      >(new Map())
-      // WeakMap: per-editor live fiber set, used by editor-disposal to
-      // interrupt all in-flight Commands for the editor.
-      const perEditorFibers = new WeakMap<
-        TiptapEditor,
-        Set<Fiber.RuntimeFiber<unknown, unknown>>
-      >()
+      const concurrency = yield* makeCommandConcurrency
+      const tracker = yield* makeCommandRunTracker({ errorHandler })
+      const navigation = yield* makeCommandHistoryNavigation({
+        history,
+        interruptAllForEditor: tracker.interruptAllForEditor,
+      })
 
       const captureSelection = (
         editor: TiptapEditor,
@@ -113,104 +73,6 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
               ),
             )
           : Effect.succeed(null)
-
-      const restoreSelection = (
-        editor: TiptapEditor,
-        sel: SelectionInfo | null | undefined,
-      ): void => {
-        if (!sel) return
-        if (sel.kind === "text" || sel.kind === "all") {
-          editor.commands.setTextSelection({ from: sel.from, to: sel.to })
-        } else if (sel.kind === "node") {
-          editor.commands.setNodeSelection(sel.pos)
-        }
-      }
-
-      const markPending = (editorId: EditorId, op: string) =>
-        SubscriptionRef.update(pendingOps, (all) => {
-          const next = new Map(all)
-          const ops = new Set(next.get(editorId) ?? [])
-          ops.add(op)
-          next.set(editorId, ops)
-          return next
-        })
-
-      /**
-       * Atomic check-and-mark for the `block-while-pending` policy. Returns
-       * `true` if `(editorId, op)` was newly reserved (the caller should
-       * proceed); `false` if there was already a pending dispatch (the
-       * caller should fail with `CommandBusyError`). Replaces the previous
-       * read-then-write pattern that had a race window between the check
-       * and the mark.
-       */
-      const reserveIfFree = (
-        editorId: EditorId,
-        op: string,
-      ): Effect.Effect<boolean> =>
-        SubscriptionRef.modify(pendingOps, (all): [boolean, ReadonlyMap<EditorId, ReadonlySet<string>>] => {
-          const set = all.get(editorId) ?? emptyPendingOps
-          if (set.has(op)) return [false, all]
-          const next = new Map(all)
-          const nextSet = new Set(set)
-          nextSet.add(op)
-          next.set(editorId, nextSet)
-          return [true, next]
-        })
-
-      const unmarkPending = (editorId: EditorId, op: string) =>
-        SubscriptionRef.update(pendingOps, (all) => {
-          const current = all.get(editorId)
-          if (!current?.has(op)) return all
-          const next = new Map(all)
-          const ops = new Set(current)
-          ops.delete(op)
-          if (ops.size === 0) next.delete(editorId)
-          else next.set(editorId, ops)
-          return next
-        })
-
-      const getOrCreateSemaphore = (
-        key: string,
-      ): Effect.Effect<Effect.Semaphore> =>
-        Effect.gen(function* () {
-          // Optimistic fast path — semaphore already exists.
-          const current = yield* Ref.get(semaphores)
-          const existing = current.get(key)
-          if (existing) return existing
-          // Create a fresh semaphore and atomically install it. If a
-          // concurrent fiber raced and installed one first, throw away
-          // ours and use theirs — this guarantees a single semaphore per
-          // key regardless of dispatch parallelism.
-          const fresh = yield* Effect.makeSemaphore(1)
-          return yield* Ref.modify(semaphores, (m) => {
-            const winner = m.get(key) ?? fresh
-            if (winner === fresh) {
-              const next = new Map(m)
-              next.set(key, fresh)
-              return [fresh, next]
-            }
-            return [winner, m]
-          })
-        })
-
-      const getOrCreateTransactionalSemaphore = (
-        editorId: EditorId,
-      ): Effect.Effect<Effect.Semaphore> =>
-        Effect.gen(function* () {
-          const current = yield* Ref.get(transactionalSemaphores)
-          const existing = current.get(editorId)
-          if (existing) return existing
-          const fresh = yield* Effect.makeSemaphore(1)
-          return yield* Ref.modify(transactionalSemaphores, (m) => {
-            const winner = m.get(editorId) ?? fresh
-            if (winner === fresh) {
-              const next = new Map(m)
-              next.set(editorId, fresh)
-              return [fresh, next]
-            }
-            return [winner, m]
-          })
-        })
 
       const decodeInput = <Op extends string, In>(
         cmd: { readonly op: Op; readonly inputSchema: Schema.Schema<In> },
@@ -340,22 +202,10 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
           const env = yield* Effect.context<Exclude<R, CurrentEditor>>()
           const record = makeRecord(editorId, editor, cmd, validated, out, selection, coalesceKey, Date.now(), env)
           yield* history.pushCoalesced(editorId, record)
-          yield* Ref.update(a3State, (all) => {
-            if (!all.has(editorId)) return all
-            const next = new Map(all)
-            next.delete(editorId)
-            return next
-          })
+          yield* navigation.onCommandRecorded(editorId)
           return out
         })
 
-      /**
-       * Wrap `realRun` with: pendingOps tracking, commandFailedEvents
-       * publication on failure (not on interrupt), per-editor fiber
-       * registration (for editor-disposal interrupt), optional per-op fiber
-       * registration (for interrupt-and-replace), and optional transactional
-       * rollback (for `cmd.transactional`).
-       */
       const tracked = <Op extends string, In, Out, Err, R>(
         editorId: EditorId,
         editor: TiptapEditor,
@@ -366,88 +216,15 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         Out,
         Err | CommandValidationError | TransactionalRollbackError,
         Exclude<R, CurrentEditor>
-      > => {
-        const isTransactional = cmd.transactional === true
-        const body = Effect.gen(function* () {
-          const op = cmd.op
-          const cmdId = nextCmdId(op)
-          // inversions array shared with the dispatch wrapper (mutable)
-          const inversions: Array<Step> = []
-
-          if (isTransactional) {
-            yield* installDispatchWrapper(editor)
-            setContext(editor, { cmdId, inversions })
-          }
-
-          // For `block-while-pending` cmds the caller already reserved via
-          // reserveIfFree, so we'd double-mark. Detect by checking if op
-          // is already pending and only mark when it isn't.
-          // Other policies still need an explicit mark.
-          const policy = cmd.concurrencyPolicy
-          if (policy !== "block-while-pending") {
-            yield* markPending(editorId, op)
-          }
-
-          const inner = realRun(editorId, editor, cmd, input).pipe(
-            Effect.tapErrorCause((cause) =>
-              errorHandler.handle({
-                editorId,
-                op,
-                cause,
-                at: Date.now(),
-              }),
-            ),
-          )
-
-          const fiber = yield* Effect.fork(inner)
-          // Register per-editor for disposal-time interrupt
-          let editorSet = perEditorFibers.get(editor)
-          if (!editorSet) {
-            editorSet = new Set()
-            perEditorFibers.set(editor, editorSet)
-          }
-          const erased: Fiber.RuntimeFiber<unknown, unknown> = fiber
-          editorSet.add(erased)
-          const key = commandKey(editorId, op)
-          if (opts.trackOp) {
-            yield* Ref.update(perOpFibers, (all) => {
-              const next = new Map(all)
-              next.set(key, erased)
-              return next
-            })
-          }
-
-          return yield* Fiber.join(fiber).pipe(
-            Effect.tapErrorCause(() =>
-              isTransactional
-                ? replayInversions(editor, inversions)
-                : Effect.void,
-            ),
-            Effect.ensuring(
-              Effect.gen(function* () {
-                editorSet!.delete(erased)
-                if (editorSet!.size === 0) perEditorFibers.delete(editor)
-                if (opts.trackOp) {
-                  yield* Ref.update(perOpFibers, (all) => {
-                    if (all.get(key) !== erased) return all
-                    const next = new Map(all)
-                    next.delete(key)
-                    return next
-                  })
-                }
-                if (isTransactional) clearContext(editor, cmdId)
-                yield* unmarkPending(editorId, op)
-              }),
-            ),
-          )
+      > =>
+        tracker.run({
+          editorId,
+          editor,
+          op: cmd.op,
+          transactional: cmd.transactional === true,
+          trackOp: opts.trackOp === true,
+          run: realRun(editorId, editor, cmd, input),
         })
-
-        return isTransactional
-          ? Effect.flatMap(getOrCreateTransactionalSemaphore(editorId), (sem) =>
-              sem.withPermits(1)(body),
-            )
-          : body
-      }
 
       const run = <Op extends string, In, Out, Err, R>(
         editor: TiptapEditor,
@@ -465,165 +242,23 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         const editorId = getEditorId(editor)
         const op = cmd.op
         const policy = cmd.concurrencyPolicy ?? "block-while-pending"
-        const key = commandKey(editorId, op)
-
-        switch (policy) {
-          case "block-while-pending": {
-            return Effect.gen(function* () {
-              const reserved = yield* reserveIfFree(editorId, op)
-              if (!reserved) {
-                return yield* new CommandBusyError({ op })
-              }
-              return yield* tracked(editorId, editor, cmd, input)
-            }) as Effect.Effect<
-              Out,
-              | Err
-              | NotReversibleError
-              | CommandBusyError
-              | CommandValidationError
-              | TransactionalRollbackError,
-              Exclude<R, CurrentEditor>
-            >
-          }
-          case "queue": {
-            return Effect.gen(function* () {
-              const sem = yield* getOrCreateSemaphore(key)
-              return yield* sem.withPermits(1)(tracked(editorId, editor, cmd, input))
-            }) as Effect.Effect<
-              Out,
-              | Err
-              | NotReversibleError
-              | CommandBusyError
-              | CommandValidationError
-              | TransactionalRollbackError,
-              Exclude<R, CurrentEditor>
-            >
-          }
-          case "interrupt-and-replace": {
-            return Effect.gen(function* () {
-              const existing = yield* Ref.modify(perOpFibers, (all) => {
-                const existing = all.get(key)
-                if (!existing) return [undefined, all]
-                const next = new Map(all)
-                next.delete(key)
-                return [existing, next]
-              })
-              if (existing) {
-                yield* Fiber.interrupt(existing)
-              }
-              return yield* tracked(editorId, editor, cmd, input, { trackOp: true })
-            }) as Effect.Effect<
-              Out,
-              | Err
-              | NotReversibleError
-              | CommandBusyError
-              | CommandValidationError
-              | TransactionalRollbackError,
-              Exclude<R, CurrentEditor>
-            >
-          }
-          case "allow-concurrent": {
-            return tracked(editorId, editor, cmd, input) as Effect.Effect<
-              Out,
-              | Err
-              | NotReversibleError
-              | CommandBusyError
-              | CommandValidationError
-              | TransactionalRollbackError,
-              Exclude<R, CurrentEditor>
-            >
-          }
-        }
+        return concurrency.runWithPolicy({
+          editorId,
+          op,
+          policy,
+          interruptExisting: tracker.interruptExistingOp(editorId, op),
+          run: ({ trackOp }) =>
+            tracked(editorId, editor, cmd, input, { trackOp }),
+        }) as Effect.Effect<
+          Out,
+          | Err
+          | NotReversibleError
+          | CommandBusyError
+          | CommandValidationError
+          | TransactionalRollbackError,
+          Exclude<R, CurrentEditor>
+        >
       }
-
-      /**
-       * Interrupt every in-flight Command for `editor` (any concurrencyPolicy).
-       * Used by editor disposal — and by `undo` to interrupt the in-flight
-       * fiber before popping the prior history entry.
-       *
-       * Uses `Fiber.interruptFork` (fire-and-forget) rather than the awaiting
-       * `Fiber.interrupt` so the caller doesn't block on each fiber's
-       * interruption-cleanup chain. The per-fiber `Effect.ensuring` in
-       * `tracked()` cleans up registries asynchronously.
-       */
-      const interruptAllForEditor = (editor: TiptapEditor): Effect.Effect<void> =>
-        Effect.gen(function* () {
-          const set = perEditorFibers.get(editor)
-          if (!set || set.size === 0) return
-          const fibers = Array.from(set)
-          yield* Effect.forEach(fibers, (f) => Fiber.interruptFork(f), {
-            concurrency: "unbounded",
-            discard: true,
-          })
-        })
-
-      const undo = (
-        editor: TiptapEditor,
-      ): Effect.Effect<CommandRecord | null, unknown> =>
-        Effect.gen(function* () {
-          const editorId = getEditorId(editor)
-          // Cmd-Z while a Command is in-flight: interrupt the in-flight
-          // fiber(s) first. If the cmd was `transactional: true`, its
-          // interrupt path already replayed the step inversions.
-          yield* interruptAllForEditor(editor)
-          const last = yield* history.popLast(editorId)
-          if (!last) return null
-          const kind = reverseKind(last.reverseEffect)
-          if (kind === Reverse.skipOnUndo) {
-            return yield* undo(editor)
-          }
-          if (kind === Reverse.notReversible) {
-            const now = Date.now()
-            const prev = (yield* Ref.get(a3State)).get(editorId) ?? null
-            const armed =
-              prev !== null && prev.op === last.op && now - prev.at <= A3_TOGGLE_WINDOW_MS
-            if (armed) {
-              yield* Ref.update(a3State, (all) => {
-                const next = new Map(all)
-                next.delete(editorId)
-                return next
-              })
-              return yield* undo(editor)
-            }
-            yield* history.pushPreserveFuture(editorId, last)
-            yield* Ref.update(a3State, (all) => {
-              const next = new Map(all)
-              next.set(editorId, { op: last.op, at: now })
-              return next
-            })
-            yield* PubSub.publish(notReversibleEvents, { editorId, op: last.op, at: now })
-            return yield* new NotReversibleError({ op: last.op })
-          }
-          yield* Effect.sync(() => restoreSelection(editor, last.selection))
-          const reverseFn = getReverseFn(last.reverseEffect)
-          if (reverseFn) {
-            yield* reverseFn(editor, last.output)
-          }
-          yield* history.pushFuture(editorId, last)
-          yield* Ref.update(a3State, (all) => {
-            if (!all.has(editorId)) return all
-            const next = new Map(all)
-            next.delete(editorId)
-            return next
-          })
-          return last
-        })
-
-      const redo = (
-        editor: TiptapEditor,
-      ): Effect.Effect<CommandRecord | null, unknown> =>
-        Effect.gen(function* () {
-          const editorId = getEditorId(editor)
-          const next = yield* history.popFuture(editorId)
-          if (!next) return null
-          const out = yield* next.forwardEffect(editor)
-          yield* history.pushPreserveFuture(editorId, {
-            ...next,
-            output: out,
-            at: Date.now(),
-          })
-          return next
-        })
 
       /**
        * Re-run a stored Command record's `forwardEffect` and return its
@@ -675,25 +310,16 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
           return out
         }))
 
-      const isPending = (editorId: EditorId, op: string): Effect.Effect<boolean> =>
-        Effect.map(SubscriptionRef.get(pendingOps), (all) => all.get(editorId)?.has(op) ?? false)
-
-      const pendingChanges = (editorId: EditorId): Stream.Stream<ReadonlySet<string>> =>
-        pendingOps.changes.pipe(
-          Stream.map((all) => all.get(editorId) ?? emptyPendingOps),
-          Stream.changes,
-        )
-
       return {
         run,
-        undo,
-        redo,
+        undo: navigation.undo,
+        redo: navigation.redo,
         dryRun,
         replay,
-        isPending,
-        pendingChanges,
-        interruptAllForEditor,
-        notReversibleEvents,
+        isPending: concurrency.isPending,
+        pendingChanges: concurrency.pendingChanges,
+        interruptAllForEditor: tracker.interruptAllForEditor,
+        notReversibleEvents: navigation.notReversibleEvents,
         commandFailedEvents: errorHandler.events,
       } as const
     }),
