@@ -46,4 +46,4 @@ export type {
   Editor,
   JSONContent,
 } from "@tiptap/core"
-export type { NodeViewProps } from "../editor/internal/node-view-store"
+export type { NodeViewProps } from "../editor/internal/react-portal-registry"

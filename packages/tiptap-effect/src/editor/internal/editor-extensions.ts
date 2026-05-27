@@ -1,7 +1,7 @@
 import type { Extensions } from "@tiptap/core"
 import { Effect } from "effect"
 import type { EditorSchema } from "../../schema/define"
-import { NodeViewStore } from "./node-view-store"
+import type { ReactPortalRegistry } from "./react-portal-registry"
 import { withoutPmHistory } from "./strip-pm-history"
 import { withReactNodeViews } from "./editor-node-views"
 import {
@@ -64,13 +64,13 @@ const buildEditorExtensions = <
   M extends EditorSchemaMarks,
 >(
   spec: EditorSpec<N, M>,
-  nodeViewStore: NodeViewStore,
+  reactPortals: ReactPortalRegistry,
 ): Effect.Effect<Extensions, SchemaCollisionError> =>
   Effect.map(buildBaseExtensions(spec.schema, spec.extensions), (extensions) =>
     withReactNodeViews(
       spec.schema,
       extensions,
-      nodeViewStore,
+      reactPortals,
     ),
   )
 

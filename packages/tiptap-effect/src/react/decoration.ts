@@ -1,10 +1,6 @@
 import { Decoration } from "@tiptap/pm/view"
 import type * as React from "react"
-import {
-  addPendingNodeViewEntryForEditorView,
-  getNodeViewStoreForEditorView,
-  removePendingNodeViewEntryForEditorView,
-} from "../editor/internal/node-view-store"
+import { registerReactPortalEntryForEditorView } from "../editor/internal/react-portal-registry"
 
 type DecorationWidgetOptions = {
   readonly side?: number
@@ -15,8 +11,6 @@ type DecorationWidgetOptions = {
   readonly key?: string
   readonly destroy?: (node: Node) => void
 }
-
-let pendingDecorationId = 0
 
 export interface ReactDecorationSpec<Props extends object = Record<string, never>> {
   readonly Component: React.FC<Props>
@@ -39,47 +33,35 @@ export const reactDecoration = <
   Component,
   ...options,
   widget(pos, widgetOptions = {}) {
-    let key: string | undefined
-    let mountedStore = null as ReturnType<typeof getNodeViewStoreForEditorView> | null
-    let pendingView: object | undefined
-    const constructionStore = getNodeViewStoreForEditorView({})
+    let registration: ReturnType<typeof registerReactPortalEntryForEditorView> | undefined
     return Decoration.widget(
       pos,
       (view) => {
-        const store = getNodeViewStoreForEditorView(view) ?? constructionStore
         const dom = document.createElement("span")
         if (options.className) dom.className = options.className
         for (const [name, value] of Object.entries(options.attrs ?? {})) {
           dom.setAttribute(name, value)
         }
-        key = store?.nextKey("decoration") ?? `decoration-pending-${++pendingDecorationId}`
-        mountedStore = store
-        const entry = {
-          key,
-          dom,
-          contentDOM: null,
-          Component: Component as React.FC<Record<string, unknown>>,
-          componentProps: (options.props ?? {}) as Record<string, unknown>,
-          props: null,
-        }
-        if (store) store.add(entry)
-        else {
-          pendingView = view
-          addPendingNodeViewEntryForEditorView(view, entry)
-        }
+        registration = registerReactPortalEntryForEditorView(
+          view,
+          "decoration",
+          (key) => ({
+            key,
+            kind: "decoration",
+            dom,
+            contentDOM: null,
+            Component: Component as React.FC<Record<string, unknown>>,
+            componentProps: (options.props ?? {}) as Record<string, unknown>,
+            nodeViewProps: null,
+          }),
+        )
         return dom
       },
       {
         ...widgetOptions,
         marks: widgetOptions.marks as never,
         destroy(node) {
-          const store = pendingView
-            ? (mountedStore ?? getNodeViewStoreForEditorView(pendingView))
-            : mountedStore
-          if (key) store?.remove(key)
-          if (key && !store && pendingView) {
-            removePendingNodeViewEntryForEditorView(pendingView, key)
-          }
+          registration?.dispose()
           widgetOptions.destroy?.(node)
         },
       },

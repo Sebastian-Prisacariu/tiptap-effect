@@ -1,9 +1,9 @@
 import type * as React from "react"
-import { Either } from "effect"
 
-const storesByEditorView = new WeakMap<object, NodeViewStore>()
-const constructionStoreStack: Array<NodeViewStore> = []
-const pendingEntriesByEditorView = new WeakMap<object, Array<NodeViewEntry>>()
+const registriesByEditorView = new WeakMap<object, ReactPortalRegistry>()
+const constructionRegistryStack: Array<ReactPortalRegistry> = []
+const pendingEntriesByEditorView = new WeakMap<object, Array<ReactPortalEntry>>()
+let pendingId = 0
 
 export interface NodeViewProps {
   readonly nodeAttrs: Record<string, unknown>
@@ -18,13 +18,16 @@ export interface NodeViewProps {
   readonly unsafeNode: unknown
 }
 
-export interface NodeViewEntry {
+export type ReactPortalKind = "node-view" | "decoration"
+
+export interface ReactPortalEntry {
   readonly key: string
+  readonly kind: ReactPortalKind
   readonly dom: HTMLElement
   readonly contentDOM: HTMLElement | null
   readonly Component: React.FC<Record<string, unknown>>
   readonly componentProps: Record<string, unknown>
-  readonly props: NodeViewProps | null
+  readonly nodeViewProps: NodeViewProps | null
 }
 
 const shallowEqual = (
@@ -38,7 +41,7 @@ const shallowEqual = (
   return aKeys.every((key) => Object.is(a[key], b[key]))
 }
 
-const propsEqual = (a: NodeViewProps, b: NodeViewProps): boolean =>
+const nodeViewPropsEqual = (a: NodeViewProps, b: NodeViewProps): boolean =>
   shallowEqual(a.nodeAttrs, b.nodeAttrs)
   && a.nodeType === b.nodeType
   && a.nodeSize === b.nodeSize
@@ -47,31 +50,32 @@ const propsEqual = (a: NodeViewProps, b: NodeViewProps): boolean =>
   && a.unsafeNode === b.unsafeNode
 
 /**
- * Per-editor registry of active NodeViews. The Tiptap node-view callback
- * adds/updates/removes entries as PM creates and tears down NodeViews; the
- * React view subscribes via `useSyncExternalStore` and renders one child root
- * per entry.
+ * Per-editor registry of React portals hosted inside ProseMirror-owned DOM.
+ * NodeViews and React decorations both register entries here; TiptapView is
+ * the only React subscriber.
  */
-export class NodeViewStore {
-  private entries = new Map<string, NodeViewEntry>()
+export class ReactPortalRegistry {
+  private entries = new Map<string, ReactPortalEntry>()
   private unmounts = new Map<string, () => void>()
   private listeners = new Set<() => void>()
   private nextId = 0
+  private snapshot: ReadonlyArray<ReactPortalEntry> = []
+  private snapshotDirty = true
 
-  nextKey(prefix = "nv"): string {
+  nextKey(prefix = "portal"): string {
     return `${prefix}-${++this.nextId}`
   }
 
-  add(entry: NodeViewEntry): void {
+  add(entry: ReactPortalEntry): void {
     this.entries.set(entry.key, entry)
     this.notify()
   }
 
-  update(key: string, props: NodeViewProps): void {
+  updateNodeView(key: string, props: NodeViewProps): void {
     const existing = this.entries.get(key)
-    if (!existing || !existing.props) return
-    if (propsEqual(existing.props, props)) return
-    this.entries.set(key, { ...existing, props })
+    if (!existing || !existing.nodeViewProps) return
+    if (nodeViewPropsEqual(existing.nodeViewProps, props)) return
+    this.entries.set(key, { ...existing, nodeViewProps: props })
     this.notify()
   }
 
@@ -110,10 +114,7 @@ export class NodeViewStore {
     }
   }
 
-  private snapshot: ReadonlyArray<NodeViewEntry> = []
-  private snapshotDirty = true
-
-  getSnapshot = (): ReadonlyArray<NodeViewEntry> => {
+  getSnapshot = (): ReadonlyArray<ReactPortalEntry> => {
     if (this.snapshotDirty) {
       this.snapshot = Array.from(this.entries.values())
       this.snapshotDirty = false
@@ -138,46 +139,48 @@ export class NodeViewStore {
   }
 }
 
-export const registerNodeViewStoreForEditorView = (
+export const registerReactPortalRegistryForEditorView = (
   editorView: object,
-  store: NodeViewStore,
+  registry: ReactPortalRegistry,
 ): (() => void) => {
-  storesByEditorView.set(editorView, store)
+  registriesByEditorView.set(editorView, registry)
   const pending = pendingEntriesByEditorView.get(editorView)
   if (pending) {
     pendingEntriesByEditorView.delete(editorView)
-    pending.forEach((entry) => store.add(entry))
+    pending.forEach((entry) => registry.add(entry))
   }
   return () => {
-    if (storesByEditorView.get(editorView) === store) {
-      storesByEditorView.delete(editorView)
+    if (registriesByEditorView.get(editorView) === registry) {
+      registriesByEditorView.delete(editorView)
     }
   }
 }
 
-export const getNodeViewStoreForEditorView = (
+const getReactPortalRegistryForEditorView = (
   editorView: object,
-): NodeViewStore | undefined =>
-  storesByEditorView.get(editorView)
-  ?? constructionStoreStack[constructionStoreStack.length - 1]
+): ReactPortalRegistry | undefined =>
+  registriesByEditorView.get(editorView)
+  ?? constructionRegistryStack[constructionRegistryStack.length - 1]
 
-export const withNodeViewStoreForEditorConstruction = <A>(
-  store: NodeViewStore,
+export const withReactPortalRegistryForEditorConstruction = <A>(
+  registry: ReactPortalRegistry,
   f: () => A,
 ): A => {
-  constructionStoreStack.push(store)
-  const result = Either.try(f)
-  constructionStoreStack.pop()
-  return Either.getOrThrow(result)
+  constructionRegistryStack.push(registry)
+  try {
+    return f()
+  } finally {
+    constructionRegistryStack.pop()
+  }
 }
 
-export const addPendingNodeViewEntryForEditorView = (
+const addPendingReactPortalEntryForEditorView = (
   editorView: object,
-  entry: NodeViewEntry,
+  entry: ReactPortalEntry,
 ): void => {
-  const store = storesByEditorView.get(editorView)
-  if (store) {
-    store.add(entry)
+  const registry = registriesByEditorView.get(editorView)
+  if (registry) {
+    registry.add(entry)
     return
   }
   const pending = pendingEntriesByEditorView.get(editorView)
@@ -188,7 +191,7 @@ export const addPendingNodeViewEntryForEditorView = (
   }
 }
 
-export const removePendingNodeViewEntryForEditorView = (
+const removePendingReactPortalEntryForEditorView = (
   editorView: object,
   key: string,
 ): void => {
@@ -198,4 +201,38 @@ export const removePendingNodeViewEntryForEditorView = (
   if (index === -1) return
   pending.splice(index, 1)
   if (pending.length === 0) pendingEntriesByEditorView.delete(editorView)
+}
+
+export const registerReactPortalEntryForEditorView = (
+  editorView: object,
+  prefix: string,
+  makeEntry: (key: string) => ReactPortalEntry,
+): {
+  readonly key: string
+  readonly dispose: () => void
+} => {
+  const registry = getReactPortalRegistryForEditorView(editorView)
+  const key = registry?.nextKey(prefix) ?? `${prefix}-pending-${++pendingId}`
+  const entry = makeEntry(key)
+  if (registry) {
+    registry.add(entry)
+  } else {
+    addPendingReactPortalEntryForEditorView(editorView, entry)
+  }
+
+  let disposed = false
+  return {
+    key,
+    dispose: () => {
+      if (disposed) return
+      disposed = true
+      const attachedRegistry =
+        registriesByEditorView.get(editorView) ?? registry
+      if (attachedRegistry) {
+        attachedRegistry.remove(key)
+      } else {
+        removePendingReactPortalEntryForEditorView(editorView, key)
+      }
+    },
+  }
 }

@@ -1,6 +1,6 @@
 import type { Extensions } from "@tiptap/core"
 import type { EditorSchema } from "../../schema/define"
-import { NodeViewStore } from "./node-view-store"
+import type { ReactPortalRegistry } from "./react-portal-registry"
 import type { EditorSchemaMarks, EditorSchemaNodes } from "./types"
 
 interface TiptapNode {
@@ -27,7 +27,7 @@ const withReactNodeViews = <
 >(
   schema: EditorSchema<N, M>,
   extensions: Extensions,
-  nodeViewStore: NodeViewStore,
+  reactPortals: ReactPortalRegistry,
 ): Extensions =>
   extensions.map((extension) => {
     const name = (extension as { readonly name: string }).name
@@ -43,12 +43,12 @@ const withReactNodeViews = <
           dom.appendChild(reactMount)
           const contentDOM = node.isLeaf ? null : document.createElement("div")
           if (contentDOM) dom.appendChild(contentDOM)
-          const key = nodeViewStore.nextKey()
+          const key = reactPortals.nextKey("node-view")
           let selected = false
           let currentNode: TiptapNode = node
 
           const writeProps = () => {
-            nodeViewStore.update(key, {
+            reactPortals.updateNodeView(key, {
               nodeAttrs: currentNode.attrs,
               nodeType: currentNode.type.name,
               nodeSize: currentNode.nodeSize,
@@ -58,13 +58,14 @@ const withReactNodeViews = <
             })
           }
 
-          nodeViewStore.add({
+          reactPortals.add({
             key,
+            kind: "node-view",
             dom: reactMount,
             contentDOM,
             Component,
             componentProps: {},
-            props: {
+            nodeViewProps: {
               nodeAttrs: node.attrs,
               nodeType: node.type.name,
               nodeSize: node.nodeSize,
@@ -96,7 +97,7 @@ const withReactNodeViews = <
                 && reactMount.contains(mutation.target)
             },
             destroy() {
-              nodeViewStore.remove(key)
+              reactPortals.remove(key)
             },
           }
         }

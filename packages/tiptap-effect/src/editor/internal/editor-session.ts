@@ -75,7 +75,7 @@ const bootEditorSession = <
     const booted = yield* acquireBootedEditor({ spec, reactive })
     const session = yield* Effect.gen(function* () {
       yield* installSessionReactivity(spec)
-      const handle = yield* makeEditorHandle(booted.nodeViewStore)
+      const handle = yield* makeEditorHandle(booted.reactPortals)
       return { handle } as const
     }).pipe(
       Effect.provideService(EditorContext, {

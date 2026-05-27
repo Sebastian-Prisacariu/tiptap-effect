@@ -4,23 +4,49 @@ import { Effect } from "effect"
 import * as React from "react"
 import { ScopedEditorContext, useEditorScope } from "./EditorScope"
 import { NodeViewContext } from "./NodeViewContext"
-import type { NodeViewEntry, NodeViewStore } from "../editor/internal/node-view-store"
+import type {
+  ReactPortalEntry,
+  ReactPortalRegistry,
+} from "../editor/internal/react-portal-registry"
 import {
   acquireReactRoot,
   type MountedReactRoot,
 } from "./internal/react-root-resource"
 import { runScopedResourceSync } from "./internal/scoped-resource"
 
-const useNodeViewEntries = (
-  store: NodeViewStore | null,
-): ReadonlyArray<NodeViewEntry> =>
+const useReactPortalEntries = (
+  registry: ReactPortalRegistry | null,
+): ReadonlyArray<ReactPortalEntry> =>
   React.useSyncExternalStore(
-    store ? store.subscribe : (() => () => {}),
-    store ? store.getSnapshot : (() => emptyArray),
+    registry ? registry.subscribe : (() => () => {}),
+    registry ? registry.getSnapshot : (() => emptyArray),
     () => emptyArray,
   )
 
-const emptyArray: ReadonlyArray<NodeViewEntry> = Object.freeze([])
+const emptyArray: ReadonlyArray<ReactPortalEntry> = Object.freeze([])
+
+const PortalProviders: React.FC<{
+  registry: React.ContextType<typeof RegistryContext>
+  editorScope: React.ContextType<typeof ScopedEditorContext>
+  entry: ReactPortalEntry
+  renderNodeViewProviders?: (children: React.ReactNode) => React.ReactNode
+}> = ({ registry, editorScope, entry, renderNodeViewProviders }) => {
+  const { Component } = entry
+  const content = (
+    <RegistryContext.Provider value={registry}>
+      <ScopedEditorContext.Provider value={editorScope}>
+        {entry.nodeViewProps ? (
+          <NodeViewContext.Provider value={entry.nodeViewProps}>
+            <Component {...entry.componentProps} />
+          </NodeViewContext.Provider>
+        ) : (
+          <Component {...entry.componentProps} />
+        )}
+      </ScopedEditorContext.Provider>
+    </RegistryContext.Provider>
+  )
+  return <>{renderNodeViewProviders?.(content) ?? content}</>
+}
 
 /**
  * Renders the editor's contenteditable into a managed `<div>` and renders
@@ -36,11 +62,11 @@ export const TiptapView: React.FC<{
   style?: React.CSSProperties
 }> = ({ className, renderNodeViewProviders, style }) => {
   const editorScope = useEditorScope()
-  const registry = React.useContext(RegistryContext)
+  const atomRegistry = React.useContext(RegistryContext)
   const { atom } = editorScope
   const result = useAtomValue(atom)
-  const store = Result.isSuccess(result) ? result.value._internal.nodeViewStore : null
-  const entries = useNodeViewEntries(store)
+  const portalRegistry = Result.isSuccess(result) ? result.value._internal.reactPortals : null
+  const entries = useReactPortalEntries(portalRegistry)
   const handleRef = React.useRef(Result.isSuccess(result) ? result.value : null)
   const hostRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -61,10 +87,10 @@ export const TiptapView: React.FC<{
         <NodeViewRoot
           key={entry.key}
           entry={entry}
-          registry={registry}
+          registry={atomRegistry}
           editorScope={editorScope}
           renderNodeViewProviders={renderNodeViewProviders}
-          store={store}
+          portalRegistry={portalRegistry}
         />
       ))}
     </>
@@ -72,41 +98,23 @@ export const TiptapView: React.FC<{
 }
 
 const NodeViewRoot: React.FC<{
-  entry: NodeViewEntry
+  entry: ReactPortalEntry
   registry: React.ContextType<typeof RegistryContext>
   editorScope: React.ContextType<typeof ScopedEditorContext>
   renderNodeViewProviders?: (children: React.ReactNode) => React.ReactNode
-  store: NodeViewStore | null
-}> = ({ entry, registry, editorScope, renderNodeViewProviders, store }) => {
-  const { Component } = entry
+  portalRegistry: ReactPortalRegistry | null
+}> = ({ entry, registry, editorScope, renderNodeViewProviders, portalRegistry }) => {
   const rootRef = React.useRef<MountedReactRoot | null>(null)
   const unmountRef = React.useRef<(() => void) | null>(null)
   const pendingCleanupRef = React.useRef<object | null>(null)
 
-  const content = renderNodeViewProviders?.(
-    <RegistryContext.Provider value={registry}>
-      <ScopedEditorContext.Provider value={editorScope}>
-        {entry.props ? (
-          <NodeViewContext.Provider value={entry.props}>
-            <Component {...entry.componentProps} />
-          </NodeViewContext.Provider>
-        ) : (
-          <Component {...entry.componentProps} />
-        )}
-      </ScopedEditorContext.Provider>
-    </RegistryContext.Provider>,
-  ) ?? (
-    <RegistryContext.Provider value={registry}>
-      <ScopedEditorContext.Provider value={editorScope}>
-        {entry.props ? (
-          <NodeViewContext.Provider value={entry.props}>
-            <Component {...entry.componentProps} />
-          </NodeViewContext.Provider>
-        ) : (
-          <Component {...entry.componentProps} />
-        )}
-      </ScopedEditorContext.Provider>
-    </RegistryContext.Provider>
+  const content = (
+    <PortalProviders
+      registry={registry}
+      editorScope={editorScope}
+      entry={entry}
+      renderNodeViewProviders={renderNodeViewProviders}
+    />
   )
 
   React.useLayoutEffect(() => {
@@ -129,18 +137,18 @@ const NodeViewRoot: React.FC<{
 
     const unmount = unmountRef.current
     if (unmount === null) return
-    store?.setUnmount(entry.key, unmount)
+    portalRegistry?.setUnmount(entry.key, unmount)
     return () => {
       const cleanupToken = {}
       pendingCleanupRef.current = cleanupToken
       queueMicrotask(() => {
         if (pendingCleanupRef.current !== cleanupToken) return
         pendingCleanupRef.current = null
-        store?.clearUnmount(entry.key, unmount)
+        portalRegistry?.clearUnmount(entry.key, unmount)
         unmount()
       })
     }
-  }, [entry.dom, entry.key, store])
+  }, [entry.dom, entry.key, portalRegistry])
 
   React.useLayoutEffect(() => {
     const root = rootRef.current

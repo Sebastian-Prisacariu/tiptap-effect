@@ -9,10 +9,10 @@ import { decodeInitialContent } from "./decode-initial-content"
 import { destroyEditorOnce } from "./destroy-editor"
 import { buildEditorExtensions } from "./editor-extensions"
 import {
-  NodeViewStore,
-  registerNodeViewStoreForEditorView,
-  withNodeViewStoreForEditorConstruction,
-} from "./node-view-store"
+  ReactPortalRegistry,
+  registerReactPortalRegistryForEditorView,
+  withReactPortalRegistryForEditorConstruction,
+} from "./react-portal-registry"
 import {
   EditorInitError,
   type EditorSchemaMarks,
@@ -37,8 +37,8 @@ export interface EditorBootInput<
 export interface BootedEditor {
   readonly id: EditorId
   readonly editor: TiptapEditor
-  readonly nodeViewStore: NodeViewStore
-  readonly unregisterConstructedViewStore: () => void
+  readonly reactPortals: ReactPortalRegistry
+  readonly unregisterConstructedPortalRegistry: () => void
 }
 
 const createTiptapEditor = <
@@ -50,10 +50,10 @@ const createTiptapEditor = <
   content: NodeJSON,
   editable: boolean,
   editorProps: Record<string, unknown> | undefined,
-  nodeViewStore: NodeViewStore,
+  reactPortals: ReactPortalRegistry,
 ): TiptapEditor =>
-  withNodeViewStoreForEditorConstruction(
-    nodeViewStore,
+  withReactPortalRegistryForEditorConstruction(
+    reactPortals,
     () =>
       new TiptapEditor({
         element: null,
@@ -65,12 +65,12 @@ const createTiptapEditor = <
   )
 
 const cleanupPartialBoot = (
-  nodeViewStore: NodeViewStore,
+  reactPortals: ReactPortalRegistry,
   editor: TiptapEditor | undefined,
-  unregisterConstructedViewStore: (() => void) | undefined,
+  unregisterConstructedPortalRegistry: (() => void) | undefined,
 ): void => {
-  unregisterConstructedViewStore?.()
-  nodeViewStore.dispose()
+  unregisterConstructedPortalRegistry?.()
+  reactPortals.dispose()
   if (editor !== undefined) {
     destroyEditorOnce(editor)
   }
@@ -88,15 +88,15 @@ export const bootEditor = <
       reactive.extensions === undefined
         ? spec
         : { ...spec, extensions: reactive.extensions }
-    const nodeViewStore = new NodeViewStore()
+    const reactPortals = new ReactPortalRegistry()
     let editor: TiptapEditor | undefined
-    let unregisterConstructedViewStore: (() => void) | undefined
+    let unregisterConstructedPortalRegistry: (() => void) | undefined
 
     return yield* Effect.gen(function* () {
       const content = yield* decodeInitialContent(effectiveSpec)
       const extensions = yield* buildEditorExtensions(
         effectiveSpec,
-        nodeViewStore,
+        reactPortals,
       ).pipe(Effect.mapError((cause) => new EditorInitError({ cause })))
 
       editor = createTiptapEditor(
@@ -105,27 +105,27 @@ export const bootEditor = <
         content,
         reactive.editable,
         reactive.editorProps,
-        nodeViewStore,
+        reactPortals,
       )
       registerEditorId(editor, spec.id)
-      unregisterConstructedViewStore = registerNodeViewStoreForEditorView(
+      unregisterConstructedPortalRegistry = registerReactPortalRegistryForEditorView(
         editor.view,
-        nodeViewStore,
+        reactPortals,
       )
 
       return {
         id: spec.id,
         editor,
-        nodeViewStore,
-        unregisterConstructedViewStore,
+        reactPortals,
+        unregisterConstructedPortalRegistry,
       } as const
     }).pipe(
       Effect.tapErrorCause(() =>
         Effect.sync(() =>
           cleanupPartialBoot(
-            nodeViewStore,
+            reactPortals,
             editor,
-            unregisterConstructedViewStore,
+            unregisterConstructedPortalRegistry,
           ),
         ),
       ),
@@ -140,8 +140,8 @@ export const releaseBootedEditor = (
     const bus = yield* TransactionBus
 
     yield* executor.interruptAllForEditor(booted.editor)
-    yield* Effect.sync(() => booted.unregisterConstructedViewStore())
-    yield* Effect.sync(() => booted.nodeViewStore.dispose())
+    yield* Effect.sync(() => booted.unregisterConstructedPortalRegistry())
+    yield* Effect.sync(() => booted.reactPortals.dispose())
     yield* Effect.sync(() => destroyEditorOnce(booted.editor))
     yield* bus.dispose(booted.id)
   })

@@ -9,7 +9,7 @@ import {
 } from "./internal/types"
 import type { ReactiveEditorInputs } from "./internal/booted-editor"
 import { acquireEditorSession } from "./internal/editor-session"
-import type { NodeViewStore } from "./internal/node-view-store"
+import type { ReactPortalRegistry } from "./internal/react-portal-registry"
 
 export {
   EditorInitError,
@@ -39,7 +39,7 @@ export interface EditorHandle {
   readonly mount: (el: HTMLElement | null) => void
   readonly _internal: {
     readonly editor: TiptapEditor
-    readonly nodeViewStore: NodeViewStore
+    readonly reactPortals: ReactPortalRegistry
   }
 }
 

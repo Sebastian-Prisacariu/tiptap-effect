@@ -1,5 +1,5 @@
 import * as React from "react"
-import type { NodeViewProps } from "../editor/internal/node-view-store"
+import type { NodeViewProps } from "../editor/internal/react-portal-registry"
 
 export const NodeViewContext = React.createContext<NodeViewProps | null>(null)
 

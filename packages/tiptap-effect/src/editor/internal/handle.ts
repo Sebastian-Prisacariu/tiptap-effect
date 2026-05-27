@@ -2,20 +2,20 @@ import type { Editor as TiptapEditor } from "@tiptap/core"
 import { Effect } from "effect"
 import { EditorContext } from "./context"
 import {
-  NodeViewStore,
-  registerNodeViewStoreForEditorView,
-  withNodeViewStoreForEditorConstruction,
-} from "./node-view-store"
+  ReactPortalRegistry,
+  registerReactPortalRegistryForEditorView,
+  withReactPortalRegistryForEditorConstruction,
+} from "./react-portal-registry"
 
 interface EditorHandle {
   readonly mount: (el: HTMLElement | null) => void
   readonly _internal: {
     readonly editor: TiptapEditor
-    readonly nodeViewStore: NodeViewStore
+    readonly reactPortals: ReactPortalRegistry
   }
 }
 
-const makeEditorHandle = (nodeViewStore: NodeViewStore) =>
+const makeEditorHandle = (reactPortals: ReactPortalRegistry) =>
   Effect.map(EditorContext, ({ editor }): EditorHandle => {
     let unregisterMountedView: (() => void) | undefined
     let mountedElement: HTMLElement | null = null
@@ -23,13 +23,13 @@ const makeEditorHandle = (nodeViewStore: NodeViewStore) =>
       mount: (el: HTMLElement | null) => {
         if (el === mountedElement) return
         if (el) {
-          withNodeViewStoreForEditorConstruction(nodeViewStore, () =>
+          withReactPortalRegistryForEditorConstruction(reactPortals, () =>
             editor.mount(el),
           )
           unregisterMountedView?.()
-          unregisterMountedView = registerNodeViewStoreForEditorView(
+          unregisterMountedView = registerReactPortalRegistryForEditorView(
             editor.view,
-            nodeViewStore,
+            reactPortals,
           )
         } else {
           unregisterMountedView?.()
@@ -38,7 +38,7 @@ const makeEditorHandle = (nodeViewStore: NodeViewStore) =>
         }
         mountedElement = el
       },
-      _internal: { editor, nodeViewStore },
+      _internal: { editor, reactPortals },
     }
   })
 
