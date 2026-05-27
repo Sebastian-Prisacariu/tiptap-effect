@@ -18,10 +18,7 @@ import {
 } from "../document/selector";
 import type {
   AnyEditorSchema,
-  AttrsOfNode,
   DocumentOf,
-  InsertableContentOf,
-  NodeNameOf,
 } from "../schema/define";
 import { CurrentEditor } from "./internal/current-editor";
 import {
@@ -31,6 +28,31 @@ import {
   orderMatchesDescending,
   restoreDocumentSnapshot,
 } from "./internal/document-patch-contract";
+import {
+  makeDocumentPatchSchemas,
+  type DocumentPatchSchemas,
+  type PreviousContentOutput,
+  type SelectorPatchOutput,
+} from "./internal/document-patch-schemas";
+
+export type {
+  DeleteRangeInput,
+  InsertContentAtInput,
+  PreviousContentOutput,
+  ReplaceNodeAtInput,
+  ReplaceRangeInput,
+  SelectorInput,
+  SelectorInsertInput,
+  SelectorManyInput,
+  SelectorPatchOutput,
+  SelectorReplaceInput,
+  SetContentInput,
+  TypedNodeSelector,
+  TypedNodeSelectorWithType,
+  UpdateAttrsAtOutput,
+  UpdateNodeAttrsAtInput,
+  UpdateNodeAttrsBySelectorInput,
+} from "./internal/document-patch-schemas";
 
 type Chain = ReturnType<TiptapEditor["chain"]>;
 
@@ -47,139 +69,14 @@ export class ContentPositionError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-type SelectorBase = {
-  readonly text?: string;
-  readonly textIncludes?: string;
-  readonly textMatches?: string;
-  readonly nth?: number;
-};
-
-type AnySchema = Schema.Schema<any, any, any>;
-
-type TextOnlySelector = SelectorBase & {
-  readonly type?: undefined;
-  readonly attrs?: never;
-};
-
-type TypedSelectorByNode<S extends AnyEditorSchema> = {
-  readonly [Name in NodeNameOf<S>]: SelectorBase & {
-    readonly type: Name;
-    readonly attrs?: Partial<AttrsOfNode<S, Name>>;
-  };
-}[NodeNameOf<S>];
-
-export type TypedNodeSelector<S extends AnyEditorSchema> =
-  | TextOnlySelector
-  | TypedSelectorByNode<S>;
-
-export type TypedNodeSelectorWithType<S extends AnyEditorSchema> =
-  TypedSelectorByNode<S>;
-
-type EditableNodeNameOf<S extends AnyEditorSchema> = Exclude<
-  NodeNameOf<S>,
-  "doc" | "text"
->;
-
-export type UpdateNodeAttrsAtInput<S extends AnyEditorSchema> = {
-  readonly [Name in EditableNodeNameOf<S>]: {
-    readonly pos: number;
-    readonly type: Name;
-    readonly attrs: Partial<AttrsOfNode<S, Name>>;
-  };
-}[EditableNodeNameOf<S>];
-
-export type UpdateNodeAttrsBySelectorInput<S extends AnyEditorSchema> = {
-  readonly [Name in EditableNodeNameOf<S>]: {
-    readonly selector: SelectorBase & {
-      readonly type: Name;
-      readonly attrs?: Partial<AttrsOfNode<S, Name>>;
-    };
-    readonly attrs: Partial<AttrsOfNode<S, Name>>;
-    readonly all?: boolean;
-  };
-}[EditableNodeNameOf<S>];
-
-export type SetContentInput<S extends AnyEditorSchema> = {
-  readonly content: DocumentOf<S>;
-};
-
-export type InsertContentAtInput<S extends AnyEditorSchema> = {
-  readonly pos: number;
-  readonly content: InsertableContentOf<S>;
-};
-
-export type ReplaceRangeInput<S extends AnyEditorSchema> = {
-  readonly from: number;
-  readonly to: number;
-  readonly content: InsertableContentOf<S>;
-};
-
-export type DeleteRangeInput = {
-  readonly from: number;
-  readonly to: number;
-};
-
-export type ReplaceNodeAtInput<S extends AnyEditorSchema> = {
-  readonly pos: number;
-  readonly content: InsertableContentOf<S>;
-};
-
-export type SelectorInput<S extends AnyEditorSchema> = {
-  readonly selector: TypedNodeSelector<S>;
-};
-
-export type SelectorManyInput<S extends AnyEditorSchema> = SelectorInput<S> & {
-  readonly all?: boolean;
-};
-
-export type SelectorInsertInput<S extends AnyEditorSchema> = SelectorInput<S> & {
-  readonly content: InsertableContentOf<S>;
-  readonly at?: "before" | "after" | "start" | "end";
-};
-
-export type SelectorReplaceInput<S extends AnyEditorSchema> =
-  SelectorManyInput<S> & {
-    readonly content: InsertableContentOf<S>;
-  };
-
-export type PreviousContentOutput<S extends AnyEditorSchema> = {
-  readonly previousContent: DocumentOf<S>;
-};
-
-export type SelectorPatchOutput<S extends AnyEditorSchema> =
-  PreviousContentOutput<S> & {
-    readonly count: number;
-  };
-
-export type UpdateAttrsAtOutput<S extends AnyEditorSchema> =
-  PreviousContentOutput<S> & {
-    readonly previousAttrs: unknown;
-    readonly nodeType: string;
-  };
-
 export interface DocumentCommandAuthoring<S extends AnyEditorSchema> {
   /**
    * Helpers for defining Commands that mutate document content and undo by
    * restoring the previous typed document.
    */
   readonly patch: DocumentPatchAuthoring<S>;
-  readonly inputs: {
-    readonly setContent: Schema.Schema<SetContentInput<S>>;
-    readonly insertContentAt: Schema.Schema<InsertContentAtInput<S>>;
-    readonly replaceRange: Schema.Schema<ReplaceRangeInput<S>>;
-    readonly replaceNodeAt: Schema.Schema<ReplaceNodeAtInput<S>>;
-    readonly selector: Schema.Schema<SelectorInput<S>>;
-    readonly selectorMany: Schema.Schema<SelectorManyInput<S>>;
-    readonly selectorInsert: Schema.Schema<SelectorInsertInput<S>>;
-    readonly selectorReplace: Schema.Schema<SelectorReplaceInput<S>>;
-    readonly updateAttrsAt: Schema.Schema<UpdateNodeAttrsAtInput<S>>;
-    readonly updateBySelector: Schema.Schema<UpdateNodeAttrsBySelectorInput<S>>;
-  };
-  readonly outputs: {
-    readonly previousContent: Schema.Schema<PreviousContentOutput<S>>;
-    readonly patch: Schema.Schema<SelectorPatchOutput<S>>;
-    readonly updateAttrsAt: Schema.Schema<UpdateAttrsAtOutput<S>>;
-  };
+  readonly inputs: DocumentPatchSchemas<S>["inputs"];
+  readonly outputs: DocumentPatchSchemas<S>["outputs"];
   readonly currentFromState: (state: EditorState) => DocumentOf<S>;
 }
 
@@ -313,151 +210,6 @@ export interface DocumentPatchAuthoring<S extends AnyEditorSchema> {
   ): Command<Op, In, SelectorPatchOutput<S>, Err | DocumentSelectorError, CurrentEditor>;
 }
 
-const selectorBaseFields = {
-  text: Schema.optional(Schema.String),
-  textIncludes: Schema.optional(Schema.String),
-  textMatches: Schema.optional(Schema.String),
-  nth: Schema.optional(Schema.Number),
-};
-
-const unionOrNever = (schemas: ReadonlyArray<AnySchema>): AnySchema => {
-  if (schemas.length === 0) return Schema.Union() as unknown as AnySchema;
-  if (schemas.length === 1) return schemas[0]!;
-  return Schema.Union(
-    ...(schemas as [AnySchema, AnySchema, ...Array<AnySchema>]),
-  );
-};
-
-const textOnlySelectorSchema = Schema.Struct({
-  ...selectorBaseFields,
-  type: Schema.optional(Schema.Undefined),
-  attrs: Schema.optional(Schema.Undefined),
-});
-
-const nodeNames = (schema: AnyEditorSchema): ReadonlyArray<string> =>
-  Object.keys(schema.nodes);
-
-const editableNodeNames = (schema: AnyEditorSchema): ReadonlyArray<string> =>
-  nodeNames(schema).filter((name) => name !== "doc" && name !== "text");
-
-const nodeSelectorSchemas = (
-  schema: AnyEditorSchema,
-  names: ReadonlyArray<string> = nodeNames(schema),
-): ReadonlyArray<AnySchema> =>
-  names.map((name) =>
-    Schema.Struct({
-      ...selectorBaseFields,
-      type: Schema.Literal(name),
-      attrs: Schema.optional(
-        schema.partialNodeAttrsSchemas[name] ?? Schema.Struct({}),
-      ),
-    }),
-  );
-
-const typedSelectorSchema = <S extends AnyEditorSchema>(
-  schema: S,
-): Schema.Schema<TypedNodeSelector<S>> =>
-  unionOrNever([
-    textOnlySelectorSchema,
-    ...nodeSelectorSchemas(schema),
-  ]) as Schema.Schema<TypedNodeSelector<S>>;
-
-const insertableContentSchema = <S extends AnyEditorSchema>(
-  schema: S,
-): Schema.Schema<InsertableContentOf<S>> => {
-  const insertableNode = (schema.NodeUnion as unknown as AnySchema).pipe(
-    Schema.filter(
-      (node: unknown) => (node as { readonly type?: string }).type !== "doc",
-      {
-        message: () => "Insertable content cannot be a full doc node",
-      },
-    ),
-  );
-  return Schema.Union(
-    insertableNode,
-    Schema.Array(insertableNode),
-    Schema.String,
-  ) as unknown as Schema.Schema<InsertableContentOf<S>>;
-};
-
-const makeInputs = <S extends AnyEditorSchema>(schema: S) => {
-  const insertable = insertableContentSchema(schema);
-  const selector = typedSelectorSchema(schema);
-  const editableNames = editableNodeNames(schema);
-  const editableSelectorSchemas = nodeSelectorSchemas(schema, editableNames);
-  const updateAttrsAt = unionOrNever(
-    editableNames.map((name) =>
-      Schema.Struct({
-        pos: Schema.Number,
-        type: Schema.Literal(name),
-        attrs: schema.partialNodeAttrsSchemas[name] ?? Schema.Struct({}),
-      }),
-    ),
-  ) as Schema.Schema<UpdateNodeAttrsAtInput<S>>;
-  const updateBySelector = unionOrNever(
-    editableNames.map((name, index) =>
-      Schema.Struct({
-        selector:
-          editableSelectorSchemas[index] ??
-          Schema.Struct({ type: Schema.Literal(name) }),
-        attrs: schema.partialNodeAttrsSchemas[name] ?? Schema.Struct({}),
-        all: Schema.optional(Schema.Boolean),
-      }),
-    ),
-  ) as Schema.Schema<UpdateNodeAttrsBySelectorInput<S>>;
-
-  return {
-    setContent: Schema.Struct({
-      content: schema.Document,
-    }) as Schema.Schema<SetContentInput<S>>,
-    insertContentAt: Schema.Struct({
-      pos: Schema.Number,
-      content: insertable,
-    }) as Schema.Schema<InsertContentAtInput<S>>,
-    replaceRange: Schema.Struct({
-      from: Schema.Number,
-      to: Schema.Number,
-      content: insertable,
-    }) as Schema.Schema<ReplaceRangeInput<S>>,
-    replaceNodeAt: Schema.Struct({
-      pos: Schema.Number,
-      content: insertable,
-    }) as Schema.Schema<ReplaceNodeAtInput<S>>,
-    selector: Schema.Struct({ selector }) as Schema.Schema<SelectorInput<S>>,
-    selectorMany: Schema.Struct({
-      selector,
-      all: Schema.optional(Schema.Boolean),
-    }) as Schema.Schema<SelectorManyInput<S>>,
-    selectorInsert: Schema.Struct({
-      selector,
-      content: insertable,
-      at: Schema.optional(Schema.Literal("before", "after", "start", "end")),
-    }) as Schema.Schema<SelectorInsertInput<S>>,
-    selectorReplace: Schema.Struct({
-      selector,
-      content: insertable,
-      all: Schema.optional(Schema.Boolean),
-    }) as Schema.Schema<SelectorReplaceInput<S>>,
-    updateAttrsAt,
-    updateBySelector,
-  };
-};
-
-const makeOutputs = <S extends AnyEditorSchema>(schema: S) => ({
-  previousContent: Schema.Struct({
-    previousContent: schema.Document,
-  }) as Schema.Schema<PreviousContentOutput<S>>,
-  patch: Schema.Struct({
-    previousContent: schema.Document,
-    count: Schema.Number,
-  }) as Schema.Schema<SelectorPatchOutput<S>>,
-  updateAttrsAt: Schema.Struct({
-    previousContent: schema.Document,
-    previousAttrs: Schema.Unknown,
-    nodeType: Schema.String,
-  }) as Schema.Schema<UpdateAttrsAtOutput<S>>,
-});
-
 const selectMatches = (
   doc: ProseMirrorNode,
   selector: DocumentSelector,
@@ -490,14 +242,13 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
   ): PreviousContentOutput<S> =>
     capturePreviousDocument<DocumentOf<S>>(state);
 
-  const restorePreviousContent = (
+  const restorePreviousContent = Effect.fnUntraced(function* (
     _input: unknown,
     { previousContent }: PreviousContentOutput<S>,
-  ) =>
-    Effect.gen(function* () {
-      const editor = yield* CurrentEditor;
-      yield* restoreDocumentSnapshot(editor, previousContent as JSONContent);
-    });
+  ) {
+    const editor = yield* CurrentEditor;
+    yield* restoreDocumentSnapshot(editor, previousContent as JSONContent);
+  });
 
   const restorePreviousDocument = (
     output: PreviousContentOutput<S>,
@@ -507,24 +258,25 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
   const makePatchReverse = <In, Out extends PreviousContentOutput<S>, Err>(
     reverse: DocumentPatchReverse<In, Out, Err> | undefined,
   ) =>
-    (input: In, output: Out): Effect.Effect<void, Err, CurrentEditor> =>
-      reverse === undefined
-        ? restorePreviousDocument(output) as Effect.Effect<void, Err, CurrentEditor>
-        : Effect.gen(function* () {
-            const editor = yield* CurrentEditor;
-            yield* reverse({
-              editor,
-              input,
-              output,
-              restorePreviousDocument: () => restorePreviousDocument(output),
-            });
-          });
+    Effect.fnUntraced(function* (input: In, output: Out) {
+      if (reverse === undefined) {
+        yield* restorePreviousDocument(output) as Effect.Effect<void, Err, CurrentEditor>;
+        return;
+      }
+
+      const editor = yield* CurrentEditor;
+      yield* reverse({
+        editor,
+        input,
+        output,
+        restorePreviousDocument: () => restorePreviousDocument(output),
+      });
+    });
 
   const previous = (editor: { readonly state: EditorState }) =>
     capturePreviousContent(editor.state);
 
-  const inputs = makeInputs(schema);
-  const outputs = makeOutputs(schema);
+  const { inputs, outputs } = makeDocumentPatchSchemas(schema);
   const applyRestorePreviousContent = (
     chain: Chain,
     _input: unknown,
@@ -562,38 +314,37 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
         description: spec.description,
         inputSchema: spec.inputSchema,
         outputSchema: outputs.patch,
-        forward: (input: In) =>
-          Effect.gen(function* () {
-            const editor = yield* CurrentEditor;
-            const output = capturePreviousContent(editor.state);
-            const selection = spec.select({ input });
-            const matches = yield* selectMatches(
-              editor.state.doc,
-              selection.selector,
-              selection.all,
-            );
-            const ordered = orderMatchesDescending(matches);
-            let count: number;
-            if (spec.applyMatches) {
-              const result = yield* spec.applyMatches({
-                editor,
-                input,
-                matches: ordered,
-              });
-              count = result ?? ordered.length;
-            } else {
-              for (const match of ordered) {
-                const result = spec.applyMatch?.({ editor, input, match });
-                if (result !== undefined) yield* result;
-              }
-              count = ordered.length;
+        forward: Effect.fnUntraced(function* (input: In) {
+          const editor = yield* CurrentEditor;
+          const output = capturePreviousContent(editor.state);
+          const selection = spec.select({ input });
+          const matches = yield* selectMatches(
+            editor.state.doc,
+            selection.selector,
+            selection.all,
+          );
+          const ordered = orderMatchesDescending(matches);
+          let count: number;
+          if (spec.applyMatches) {
+            const result = yield* spec.applyMatches({
+              editor,
+              input,
+              matches: ordered,
+            });
+            count = result ?? ordered.length;
+          } else {
+            for (const match of ordered) {
+              const result = spec.applyMatch?.({ editor, input, match });
+              if (result !== undefined) yield* result;
             }
-            return { ...output, count };
-          }) as Effect.Effect<
-            SelectorPatchOutput<S>,
-            Err | DocumentSelectorError,
-            CurrentEditor
-          >,
+            count = ordered.length;
+          }
+          return { ...output, count };
+        }) as (input: In) => Effect.Effect<
+          SelectorPatchOutput<S>,
+          Err | DocumentSelectorError,
+          CurrentEditor
+        >,
         reverse: makePatchReverse<In, SelectorPatchOutput<S>, Err | DocumentSelectorError>(
           spec.reverse as DocumentPatchReverse<
             In,
@@ -614,17 +365,16 @@ export const makeDocumentCommandAuthoring = <S extends AnyEditorSchema>(
         outputSchema: (spec.outputSchema ?? outputs.previousContent) as Schema.Schema<
           PreviousContentOutput<S> & Extra
         >,
-        forward: (input: In) =>
-          Effect.gen(function* () {
-            const editor = yield* CurrentEditor;
-            const output = capturePreviousContent(editor.state);
-            const extra = yield* spec.run({ editor, input });
-            return mergePreviousDocumentOutput(output, extra);
-          }) as Effect.Effect<
-            PreviousContentOutput<S> & Extra,
-            Err,
-            CurrentEditor
-          >,
+        forward: Effect.fnUntraced(function* (input: In) {
+          const editor = yield* CurrentEditor;
+          const output = capturePreviousContent(editor.state);
+          const extra = yield* spec.run({ editor, input });
+          return mergePreviousDocumentOutput(output, extra);
+        }) as (input: In) => Effect.Effect<
+          PreviousContentOutput<S> & Extra,
+          Err,
+          CurrentEditor
+        >,
         reverse: makePatchReverse<In, PreviousContentOutput<S> & Extra, Err>(
           spec.reverse as DocumentPatchReverse<
             In,

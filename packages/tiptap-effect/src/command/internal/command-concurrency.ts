@@ -66,24 +66,23 @@ export const makeCommandConcurrency = Effect.gen(function* () {
       return next
     })
 
-  const getOrCreateSemaphore = (
+  const getOrCreateSemaphore = Effect.fnUntraced(function* (
     key: string,
-  ): Effect.Effect<Effect.Semaphore> =>
-    Effect.gen(function* () {
-      const current = yield* Ref.get(semaphores)
-      const existing = current.get(key)
-      if (existing) return existing
-      const fresh = yield* Effect.makeSemaphore(1)
-      return yield* Ref.modify(semaphores, (m) => {
-        const winner = m.get(key) ?? fresh
-        if (winner === fresh) {
-          const next = new Map(m)
-          next.set(key, fresh)
-          return [fresh, next]
-        }
-        return [winner, m]
-      })
+  ) {
+    const current = yield* Ref.get(semaphores)
+    const existing = current.get(key)
+    if (existing) return existing
+    const fresh = yield* Effect.makeSemaphore(1)
+    return yield* Ref.modify(semaphores, (m) => {
+      const winner = m.get(key) ?? fresh
+      if (winner === fresh) {
+        const next = new Map(m)
+        next.set(key, fresh)
+        return [fresh, next]
+      }
+      return [winner, m]
     })
+  })
 
   const runMarked = <A, E, R>(
     editorId: EditorId,

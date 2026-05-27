@@ -46,14 +46,17 @@ const assertNoSchemaCollisions = <
   return Effect.void
 }
 
-const buildBaseExtensions = <
+const buildBaseExtensions: <
   N extends EditorSchemaNodes,
   M extends EditorSchemaMarks,
 >(
   schema: EditorSchema<N, M>,
   extra: Extensions | undefined,
-): Effect.Effect<Extensions, SchemaCollisionError> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Extensions, SchemaCollisionError> =
+  Effect.fnUntraced(function* <
+    N extends EditorSchemaNodes,
+    M extends EditorSchemaMarks,
+  >(schema: EditorSchema<N, M>, extra: Extensions | undefined) {
     yield* assertNoSchemaCollisions(schema, extra)
     const all: Extensions = [...schema.tiptapExtensions, ...(extra ?? [])]
     return withoutPmHistory(all, { strict: true })

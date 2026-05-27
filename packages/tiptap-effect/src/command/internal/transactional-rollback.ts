@@ -152,35 +152,37 @@ export const installDispatchWrapper = (
  * dispatch wrapper doesn't re-capture (which would create an infinite
  * loop).
  */
-export const replayInversions = (
+export const replayInversions: (
   editor: TiptapEditor,
   inversions: ReadonlyArray<Step>,
-): Effect.Effect<void> => {
-  if (inversions.length === 0) return Effect.void;
-  return Effect.gen(function* () {
-    const view = yield* Effect.try({
-      try: () => editor.view as WrappedEditorView,
-      catch: (cause) => cause,
-    }).pipe(
-      Effect.catchAll((cause) =>
-        Effect.logWarning(
-          "[tiptap-effect/transactionalRollback] failed to access editor view for replay",
-          { cause },
-        ).pipe(Effect.as(null)),
-      ),
-    );
-    if (!view) return;
+) => Effect.Effect<void> = Effect.fnUntraced(function* (
+  editor: TiptapEditor,
+  inversions: ReadonlyArray<Step>,
+) {
+  if (inversions.length === 0) return;
 
-    let tr: Transaction = editor.state.tr;
-    for (const inv of inversions) {
-      tr = yield* applyInversion(tr, inv);
-    }
-    yield* Effect.sync(() => {
-      tr.setMeta(ROLLBACK_META, true);
-      view.dispatch(tr);
-    });
+  const view = yield* Effect.try({
+    try: () => editor.view as WrappedEditorView,
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.catchAll((cause) =>
+      Effect.logWarning(
+        "[tiptap-effect/transactionalRollback] failed to access editor view for replay",
+        { cause },
+      ).pipe(Effect.as(null)),
+    ),
+  );
+  if (!view) return;
+
+  let tr: Transaction = editor.state.tr;
+  for (const inv of inversions) {
+    tr = yield* applyInversion(tr, inv);
+  }
+  yield* Effect.sync(() => {
+    tr.setMeta(ROLLBACK_META, true);
+    view.dispatch(tr);
   });
-};
+});
 
 /**
  * Backwards-compat helper used by tests/diagnostics. Returns the topmost

@@ -42,12 +42,11 @@ export const installTransactionOriginWrapper = (
     };
   });
 
-export const withCommandOrigin = <A, E, R>(
+export const withCommandOrigin = Effect.fnUntraced(function* <A, E, R>(
   editor: TiptapEditor,
   op: string,
   effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> =>
-  Effect.gen(function* () {
+) {
     yield* installTransactionOriginWrapper(editor);
     const stack = originStackFor(editor);
     stack.push(op);
@@ -69,11 +68,10 @@ export const isCommandOriginActive = (editor: TiptapEditor): boolean => {
   return stack !== undefined && stack.length > 0;
 };
 
-export const withHistoryRestore = <A, E, R>(
+export const withHistoryRestore = Effect.fnUntraced(function* <A, E, R>(
   editor: TiptapEditor,
   effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> =>
-  Effect.gen(function* () {
+) {
     activeHistoryRestores.add(editor);
     return yield* effect.pipe(
       Effect.ensuring(

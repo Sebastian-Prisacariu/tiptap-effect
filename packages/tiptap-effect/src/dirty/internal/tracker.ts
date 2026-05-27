@@ -15,14 +15,13 @@ export class DirtyTracker extends Effect.Service<DirtyTracker>()(
     effect: Effect.gen(function* () {
       const refs = new Map<EditorId, SubscriptionRef.SubscriptionRef<unknown>>()
 
-      const get = (id: EditorId): Effect.Effect<SubscriptionRef.SubscriptionRef<unknown>> =>
-        Effect.gen(function* () {
-          const existing = refs.get(id)
-          if (existing) return existing
-          const ref = yield* SubscriptionRef.make<unknown>(null)
-          refs.set(id, ref)
-          return ref
-        })
+      const get = Effect.fnUntraced(function* (id: EditorId) {
+        const existing = refs.get(id)
+        if (existing) return existing
+        const ref = yield* SubscriptionRef.make<unknown>(null)
+        refs.set(id, ref)
+        return ref
+      })
 
       const markSaved = (id: EditorId, doc: unknown) =>
         Effect.flatMap(get(id), (ref) => SubscriptionRef.set(ref, doc))

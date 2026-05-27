@@ -141,49 +141,50 @@ const atomic = <
     description,
     inputSchema,
     outputSchema,
-    forward: (inputs) =>
-      Effect.gen(function* () {
-        const editor = yield* CurrentEditor
-        const stateBefore = editor.state
-        // Snapshot the pre-chain doc so we can restore on chain failure.
-        // Tiptap's chain.run() dispatches the accumulated transaction
-        // regardless of step results — we need an explicit rollback to keep
-        // Sequence.atomic's "no partial commit visible" guarantee.
-        const docBefore: JSONContent = stateBefore.doc.toJSON()
-        const captured: Array<unknown> = []
-        let chain = editor.chain()
-        for (let i = 0; i < steps.length; i++) {
-          const step = eraseEditorCommand(steps[i]!)
-          const input = tupleAt(inputs, i)
-          const cap = step.reverseSetup
-            ? step.reverseSetup(stateBefore, input)
-            : undefined
-          captured.push(cap)
-          chain = step.apply(chain, input)
-        }
-        const ok = chain.run()
-        if (!ok) {
-          // setContent signature varies across Tiptap versions — use the
-          // single-arg form which always replaces the doc.
-          editor.chain().setContent(docBefore).run()
-          return yield* new SequenceFailure({ props: { op } })
-        }
-        return captured as unknown as StepOutputs<Steps>
-      }),
-    reverse: (inputs, captured) =>
-      Effect.gen(function* () {
-        const editor = yield* CurrentEditor
-        let chain = editor.chain()
-        // Reverse in reverse order
-        for (let i = steps.length - 1; i >= 0; i--) {
-          const step = eraseEditorCommand(steps[i]!)
-          if (!step.applyReverse) continue
-          const input = tupleAt(inputs, i)
-          const cap = tupleAt(captured, i)
-          chain = step.applyReverse(chain, input, cap)
-        }
-        chain.run()
-      }),
+    forward: Effect.fnUntraced(function* (inputs: StepInputs<Steps>) {
+      const editor = yield* CurrentEditor
+      const stateBefore = editor.state
+      // Snapshot the pre-chain doc so we can restore on chain failure.
+      // Tiptap's chain.run() dispatches the accumulated transaction
+      // regardless of step results — we need an explicit rollback to keep
+      // Sequence.atomic's "no partial commit visible" guarantee.
+      const docBefore: JSONContent = stateBefore.doc.toJSON()
+      const captured: Array<unknown> = []
+      let chain = editor.chain()
+      for (let i = 0; i < steps.length; i++) {
+        const step = eraseEditorCommand(steps[i]!)
+        const input = tupleAt(inputs, i)
+        const cap = step.reverseSetup
+          ? step.reverseSetup(stateBefore, input)
+          : undefined
+        captured.push(cap)
+        chain = step.apply(chain, input)
+      }
+      const ok = chain.run()
+      if (!ok) {
+        // setContent signature varies across Tiptap versions — use the
+        // single-arg form which always replaces the doc.
+        editor.chain().setContent(docBefore).run()
+        return yield* new SequenceFailure({ props: { op } })
+      }
+      return captured as unknown as StepOutputs<Steps>
+    }),
+    reverse: Effect.fnUntraced(function* (
+      inputs: StepInputs<Steps>,
+      captured: StepOutputs<Steps>,
+    ) {
+      const editor = yield* CurrentEditor
+      let chain = editor.chain()
+      // Reverse in reverse order
+      for (let i = steps.length - 1; i >= 0; i--) {
+        const step = eraseEditorCommand(steps[i]!)
+        if (!step.applyReverse) continue
+        const input = tupleAt(inputs, i)
+        const cap = tupleAt(captured, i)
+        chain = step.applyReverse(chain, input, cap)
+      }
+      chain.run()
+    }),
   })
 
   const stepOps: ReadonlyArray<string> = steps.map((s) => eraseEditorCommand(s).op)
@@ -276,45 +277,44 @@ const sequential = <
     (s) => eraseCommand(s).reverse === Reverse.notReversible,
   )
 
-  const forward = (inputs: AnyStepInputs<Steps>) =>
-    Effect.gen(function* () {
-      const outputs: Array<unknown> = []
-      for (let i = 0; i < steps.length; i++) {
-        const step = eraseCommand(steps[i]!)
-        const input = tupleAt(inputs, i)
-        const result = yield* Effect.either(step.forward(input))
-        if (Either.isRight(result)) {
-          outputs.push(result.right)
+  const forward = Effect.fnUntraced(function* (inputs: AnyStepInputs<Steps>) {
+    const outputs: Array<unknown> = []
+    for (let i = 0; i < steps.length; i++) {
+      const step = eraseCommand(steps[i]!)
+      const input = tupleAt(inputs, i)
+      const result = yield* Effect.either(step.forward(input))
+      if (Either.isRight(result)) {
+        outputs.push(result.right)
+        continue
+      }
+      // Rollback successful steps in reverse order
+      let irreversibleAt: number | null = null
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = eraseCommand(steps[j]!)
+        const prevInput = tupleAt(inputs, j)
+        const prevOut = outputs[j]
+        const rev = prev.reverse
+        if (typeof rev !== "function") {
+          // notReversible or skipOnUndo: cannot mechanically reverse
+          if (rev === Reverse.notReversible && irreversibleAt === null) {
+            irreversibleAt = j
+          }
           continue
         }
-        // Rollback successful steps in reverse order
-        let irreversibleAt: number | null = null
-        for (let j = i - 1; j >= 0; j--) {
-          const prev = eraseCommand(steps[j]!)
-          const prevInput = tupleAt(inputs, j)
-          const prevOut = outputs[j]
-          const rev = prev.reverse
-          if (typeof rev !== "function") {
-            // notReversible or skipOnUndo: cannot mechanically reverse
-            if (rev === Reverse.notReversible && irreversibleAt === null) {
-              irreversibleAt = j
-            }
-            continue
-          }
-          yield* Effect.either(rev(prevInput, prevOut))
-        }
-        return yield* new PartialFailure({
-          props: {
-            op,
-            failedAt: i,
-            rolledBackThrough: i - 1,
-            irreversibleAt,
-            cause: result.left,
-          },
-        })
+        yield* Effect.either(rev(prevInput, prevOut))
       }
-      return outputs as unknown as AnyStepOutputs<Steps>
-    })
+      return yield* new PartialFailure({
+        props: {
+          op,
+          failedAt: i,
+          rolledBackThrough: i - 1,
+          irreversibleAt,
+          cause: result.left,
+        },
+      })
+    }
+    return outputs as unknown as AnyStepOutputs<Steps>
+  })
 
   const reverse: Command<
     Op,
@@ -324,19 +324,21 @@ const sequential = <
     AnyStepDeps<Steps>
   >["reverse"] = hasIrreversibleBlocking
     ? Reverse.notReversible
-    : (((inputs: AnyStepInputs<Steps>, outputs: AnyStepOutputs<Steps>) =>
-        Effect.gen(function* () {
-          // Reverse in reverse order; skip skipOnUndo silently
-          for (let i = steps.length - 1; i >= 0; i--) {
-            const step = eraseCommand(steps[i]!)
-            const rev = step.reverse
-            if (rev === Reverse.skipOnUndo) continue
-            if (typeof rev !== "function") continue
-            const input = tupleAt(inputs, i)
-            const out = tupleAt(outputs, i)
-            yield* rev(input, out)
-          }
-        })) as unknown as Command<
+    : (Effect.fnUntraced(function* (
+        inputs: AnyStepInputs<Steps>,
+        outputs: AnyStepOutputs<Steps>,
+      ) {
+        // Reverse in reverse order; skip skipOnUndo silently
+        for (let i = steps.length - 1; i >= 0; i--) {
+          const step = eraseCommand(steps[i]!)
+          const rev = step.reverse
+          if (rev === Reverse.skipOnUndo) continue
+          if (typeof rev !== "function") continue
+          const input = tupleAt(inputs, i)
+          const out = tupleAt(outputs, i)
+          yield* rev(input, out)
+        }
+      }) as unknown as Command<
           Op,
           AnyStepInputs<Steps>,
           AnyStepOutputs<Steps>,

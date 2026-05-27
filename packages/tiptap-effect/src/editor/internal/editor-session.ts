@@ -38,17 +38,19 @@ export interface EditorSession {
   readonly handle: EditorHandle
 }
 
-const installSessionReactivity = <
+const installSessionReactivity: <
   N extends EditorSchemaNodes,
   M extends EditorSchemaMarks,
 >(
   spec: EditorSpec<N, M>,
-): Effect.Effect<
+) => Effect.Effect<
   void,
   EditorInitError,
   CommandHistory | TransactionBus | Scope.Scope | EditorContext | Registry.AtomRegistry
-> =>
-  Effect.gen(function* () {
+> = Effect.fnUntraced(function* <
+  N extends EditorSchemaNodes,
+  M extends EditorSchemaMarks,
+>(spec: EditorSpec<N, M>) {
     const subscriptionOptions: TransactionSubscriptionOptions<N, M> = {
       onSchemaMismatch: spec.onSchemaMismatch ?? "log",
       schema: spec.schema,
@@ -60,18 +62,19 @@ const installSessionReactivity = <
     yield* installEditorPropsSubscription(spec.editorPropsAtom)
   })
 
-const bootEditorSession = <
+const bootEditorSession: <
   N extends EditorSchemaNodes,
   M extends EditorSchemaMarks,
->({
-  spec,
-  reactive,
-}: EditorSessionInput<N, M>): Effect.Effect<
+>(
+  input: EditorSessionInput<N, M>,
+) => Effect.Effect<
   EditorSession,
   EditorInitError,
   CommandExecutor | CommandHistory | TransactionBus | Scope.Scope | Registry.AtomRegistry
-> =>
-  Effect.gen(function* () {
+> = Effect.fnUntraced(function* <
+  N extends EditorSchemaNodes,
+  M extends EditorSchemaMarks,
+>({ spec, reactive }: EditorSessionInput<N, M>) {
     const booted = yield* acquireBootedEditor({ spec, reactive })
     const session = yield* Effect.gen(function* () {
       yield* installSessionReactivity(spec)

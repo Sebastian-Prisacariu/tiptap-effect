@@ -1,6 +1,6 @@
 import type { Editor as TiptapEditor } from "@tiptap/core"
 import type { Transaction } from "@tiptap/pm/state"
-import { Effect } from "effect"
+import { Effect, Scope } from "effect"
 import { CommandHistory } from "../../command/command-history"
 import type { EditorSchema } from "../../schema/define"
 import { TransactionBus } from "../../runtime/internal/transaction-bus"
@@ -36,13 +36,19 @@ export type {
   InstallOptions as TransactionSubscriptionOptions,
 }
 
-const installTransactionSubscription = <
+const installTransactionSubscription: <
   N extends EditorSchemaNodes,
   M extends EditorSchemaMarks,
 >(
-  options: InstallOptions<N, M> = {},
-) =>
-  Effect.gen(function* () {
+  options?: InstallOptions<N, M>,
+) => Effect.Effect<
+  void,
+  unknown,
+  CommandHistory | TransactionBus | EditorContext | Scope.Scope
+> = Effect.fnUntraced(function* <
+  N extends EditorSchemaNodes,
+  M extends EditorSchemaMarks,
+>(options: InstallOptions<N, M> = {}) {
     const bus = yield* TransactionBus
     const editorContext = yield* EditorContext
     const snapshotForEditor = yield* makeSnapshot()

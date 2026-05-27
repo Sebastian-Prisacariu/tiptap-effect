@@ -76,14 +76,16 @@ const cleanupPartialBoot = (
   }
 }
 
-export const bootEditor = <
+export const bootEditor: <
   N extends EditorSchemaNodes,
   M extends EditorSchemaMarks,
->({
-  spec,
-  reactive,
-}: EditorBootInput<N, M>): Effect.Effect<BootedEditor, EditorInitError> =>
-  Effect.gen(function* () {
+>(
+  input: EditorBootInput<N, M>,
+) => Effect.Effect<BootedEditor, EditorInitError> =
+  Effect.fnUntraced(function* <
+    N extends EditorSchemaNodes,
+    M extends EditorSchemaMarks,
+  >({ spec, reactive }: EditorBootInput<N, M>) {
     const effectiveSpec: EditorSpec<N, M> =
       reactive.extensions === undefined
         ? spec
@@ -132,10 +134,10 @@ export const bootEditor = <
     )
   })
 
-export const releaseBootedEditor = (
+export const releaseBootedEditor: (
   booted: BootedEditor,
-): Effect.Effect<void, never, CommandExecutor | TransactionBus> =>
-  Effect.gen(function* () {
+) => Effect.Effect<void, never, CommandExecutor | TransactionBus> =
+  Effect.fnUntraced(function* (booted: BootedEditor) {
     const executor = yield* CommandExecutor
     const bus = yield* TransactionBus
 

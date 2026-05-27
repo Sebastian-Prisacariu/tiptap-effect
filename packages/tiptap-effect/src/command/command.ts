@@ -219,10 +219,10 @@ export function defineEditorCommand<Op extends string, In, Out>(
     | IrreversibleEditorCommandSpec<Op, In>,
 ): EditorCommand<Op, In, Out> | EditorCommand<Op, In, void> {
   if (isReversibleEditorSpec(spec)) {
-    const forward = (
+    const forward: (
       input: In,
-    ): Effect.Effect<Out, CommandApplicationError, CurrentEditor> =>
-      Effect.gen(function* () {
+    ) => Effect.Effect<Out, CommandApplicationError, CurrentEditor> =
+      Effect.fnUntraced(function* (input: In) {
         const editor = yield* CurrentEditor;
         const captured = spec.reverseSetup(editor.state, input);
         const chain = editor.chain();
@@ -230,8 +230,11 @@ export function defineEditorCommand<Op extends string, In, Out>(
         return captured;
       });
 
-    const reverse = (input: In, captured: Out) =>
-      Effect.gen(function* () {
+    const reverse: (
+      input: In,
+      captured: Out,
+    ) => Effect.Effect<void, CommandApplicationError, CurrentEditor> =
+      Effect.fnUntraced(function* (input: In, captured: Out) {
         const editor = yield* CurrentEditor;
         yield* runChain(
           spec.op,
@@ -259,8 +262,8 @@ export function defineEditorCommand<Op extends string, In, Out>(
     };
   }
 
-  const forward = (input: In): Effect.Effect<void, CommandApplicationError, CurrentEditor> =>
-    Effect.gen(function* () {
+  const forward: (input: In) => Effect.Effect<void, CommandApplicationError, CurrentEditor> =
+    Effect.fnUntraced(function* (input: In) {
       const editor = yield* CurrentEditor;
       yield* runChain(spec.op, "forward", spec.apply(editor.chain(), input));
     });

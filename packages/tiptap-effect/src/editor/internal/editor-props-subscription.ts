@@ -1,5 +1,5 @@
 import { Atom, Registry } from "@effect-atom/atom"
-import { Effect } from "effect"
+import { Effect, Scope } from "effect"
 import { EditorContext } from "./context"
 
 /**
@@ -7,10 +7,12 @@ import { EditorContext } from "./context"
  * editorProps via `editor.setOptions({ editorProps })` — no rebuild needed
  * because PM only consumes `editorProps` on each `dispatchTransaction`.
  */
-const installEditorPropsSubscription = (
+const installEditorPropsSubscription: (
   editorPropsAtom: Atom.Writable<Record<string, unknown>> | undefined,
-) =>
-  Effect.gen(function* () {
+) => Effect.Effect<void, never, EditorContext | Registry.AtomRegistry | Scope.Scope> =
+  Effect.fnUntraced(function* (
+    editorPropsAtom: Atom.Writable<Record<string, unknown>> | undefined,
+  ) {
     if (editorPropsAtom === undefined) return
 
     const { editor } = yield* EditorContext

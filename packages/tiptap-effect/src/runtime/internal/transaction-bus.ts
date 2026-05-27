@@ -18,33 +18,30 @@ export class TransactionBus extends Effect.Service<TransactionBus>()(
         SubscriptionRef.SubscriptionRef<TransactionSnapshot | null>
       >()
 
-      const getOrCreate = (
+      const getOrCreate = Effect.fnUntraced(function* (
         editorId: EditorId,
-      ): Effect.Effect<SubscriptionRef.SubscriptionRef<TransactionSnapshot | null>> =>
-        Effect.gen(function* () {
-          const existing = buses.get(editorId)
-          if (existing) return existing
-          const ref = yield* SubscriptionRef.make<TransactionSnapshot | null>(null)
-          buses.set(editorId, ref)
-          return ref
-        })
+      ) {
+        const existing = buses.get(editorId)
+        if (existing) return existing
+        const ref = yield* SubscriptionRef.make<TransactionSnapshot | null>(null)
+        buses.set(editorId, ref)
+        return ref
+      })
 
-      const push = (
+      const push = Effect.fnUntraced(function* (
         editorId: EditorId,
         snapshot: TransactionSnapshot,
-      ): Effect.Effect<void> =>
-        Effect.gen(function* () {
-          const ref = yield* getOrCreate(editorId)
-          yield* SubscriptionRef.set(ref, snapshot)
-        })
+      ) {
+        const ref = yield* getOrCreate(editorId)
+        yield* SubscriptionRef.set(ref, snapshot)
+      })
 
-      const latest = (
+      const latest = Effect.fnUntraced(function* (
         editorId: EditorId,
-      ): Effect.Effect<TransactionSnapshot | null> =>
-        Effect.gen(function* () {
-          const ref = yield* getOrCreate(editorId)
-          return yield* SubscriptionRef.get(ref)
-        })
+      ) {
+        const ref = yield* getOrCreate(editorId)
+        return yield* SubscriptionRef.get(ref)
+      })
 
       const stream = (
         editorId: EditorId,

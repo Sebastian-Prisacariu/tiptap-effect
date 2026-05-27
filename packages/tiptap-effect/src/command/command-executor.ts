@@ -194,32 +194,37 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         }
       }
 
-      const realRun = <Op extends string, In, Out, Err, R>(
+      const realRun = Effect.fnUntraced(function* <
+        Op extends string,
+        In,
+        Out,
+        Err,
+        R,
+      >(
         editorId: EditorId,
         editor: TiptapEditor,
         cmd: Command<Op, In, Out, Err, R>,
         input: In,
-      ): Effect.Effect<Out, Err | CommandValidationError, Exclude<R, CurrentEditor>> =>
-        Effect.gen(function* () {
-          const validated = yield* decodeInput(cmd, input)
-          return yield* withCommandOrigin(
-            editor,
-            cmd.op,
-            Effect.gen(function* () {
-              const selection = yield* captureSelection(editor, cmd)
-              const rawOutput = yield* cmd.forward(validated).pipe(
-                Effect.provideService(CurrentEditor, editor),
-              )
-              const out = yield* decodeOutput(cmd, rawOutput)
-              const coalesceKey = cmd.coalesceKey ? cmd.coalesceKey(validated) : undefined
-              const env = yield* Effect.context<Exclude<R, CurrentEditor>>()
-              const record = makeRecord(editorId, editor, cmd, validated, out, selection, coalesceKey, Date.now(), env)
-              yield* history.pushCoalesced(editorId, record)
-              yield* navigation.onCommandRecorded(editorId)
-              return out
-            }),
-          )
-        })
+      ) {
+        const validated = yield* decodeInput(cmd, input)
+        return yield* withCommandOrigin(
+          editor,
+          cmd.op,
+          Effect.gen(function* () {
+            const selection = yield* captureSelection(editor, cmd)
+            const rawOutput = yield* cmd.forward(validated).pipe(
+              Effect.provideService(CurrentEditor, editor),
+            )
+            const out = yield* decodeOutput(cmd, rawOutput)
+            const coalesceKey = cmd.coalesceKey ? cmd.coalesceKey(validated) : undefined
+            const env = yield* Effect.context<Exclude<R, CurrentEditor>>()
+            const record = makeRecord(editorId, editor, cmd, validated, out, selection, coalesceKey, Date.now(), env)
+            yield* history.pushCoalesced(editorId, record)
+            yield* navigation.onCommandRecorded(editorId)
+            return out
+          }),
+        )
+      })
 
       const tracked = <Op extends string, In, Out, Err, R>(
         editorId: EditorId,
@@ -285,51 +290,55 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
        * Useful for replaying agent-recorded sessions, golden-master
        * regression tests, and op-log migrations.
        */
-      const replay = (
+      const replay = Effect.fnUntraced(function* (
         editor: TiptapEditor,
         record: CommandRecord,
         opts: { readonly strict?: boolean } = {},
-      ): Effect.Effect<unknown, unknown> =>
-        Effect.gen(function* () {
-          const actual = yield* record.forwardEffect(editor)
-          if (opts.strict !== true) return actual
-          const outputEquals = record.outputEquals
-          if (outputEquals === undefined) return actual
-          if (!outputEquals(record.output, actual)) {
-            return yield* new ReplayDivergenceError({
-              op: record.op,
-              expected: record.output,
-              actual,
-            })
-          }
-          return actual
-        })
+      ) {
+        const actual = yield* record.forwardEffect(editor)
+        if (opts.strict !== true) return actual
+        const outputEquals = record.outputEquals
+        if (outputEquals === undefined) return actual
+        if (!outputEquals(record.output, actual)) {
+          return yield* new ReplayDivergenceError({
+            op: record.op,
+            expected: record.output,
+            actual,
+          })
+        }
+        return actual
+      })
 
-      const dryRun = <Op extends string, In, Out, Err, R>(
+      const dryRun = Effect.fnUntraced(function* <
+        Op extends string,
+        In,
+        Out,
+        Err,
+        R,
+      >(
         editor: TiptapEditor,
         cmd: Command<Op, In, Out, Err, R>,
         input: In,
-      ): Effect.Effect<Out, Err | NotReversibleError | CommandValidationError, Exclude<R, CurrentEditor>> =>
-        (Effect.gen(function* () {
-          const validated = yield* decodeInput(cmd, input)
-          if (typeof cmd.reverse !== "function") {
-            return yield* new NotReversibleError({ op: cmd.op })
-          }
-          return yield* withCommandOrigin(
-            editor,
-            cmd.op,
-            Effect.gen(function* () {
-              const rawOutput = yield* cmd.forward(validated).pipe(
-                Effect.provideService(CurrentEditor, editor),
-              )
-              const out = yield* decodeOutput(cmd, rawOutput)
-              if (typeof cmd.reverse === "function") {
-                yield* cmd.reverse(validated, out).pipe(Effect.provideService(CurrentEditor, editor))
-              }
-              return out
-            }),
-          )
-        }))
+      ) {
+        const validated = yield* decodeInput(cmd, input)
+        if (typeof cmd.reverse !== "function") {
+          return yield* new NotReversibleError({ op: cmd.op })
+        }
+        return yield* withCommandOrigin(
+          editor,
+          cmd.op,
+          Effect.gen(function* () {
+            const rawOutput = yield* cmd.forward(validated).pipe(
+              Effect.provideService(CurrentEditor, editor),
+            )
+            const out = yield* decodeOutput(cmd, rawOutput)
+            if (typeof cmd.reverse === "function") {
+              yield* cmd.reverse(validated, out).pipe(Effect.provideService(CurrentEditor, editor))
+            }
+            return out
+          }),
+        )
+      })
 
       return {
         run,

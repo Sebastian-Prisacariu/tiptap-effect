@@ -52,12 +52,11 @@ const makeNativeRecord = (
 const docBeforeTransaction = (tr: Transaction): JSONContent =>
   (tr.before as ProseMirrorNode).toJSON() as JSONContent
 
-export const makeNativeHistoryRecorder = (): Effect.Effect<
+export const makeNativeHistoryRecorder: () => Effect.Effect<
   (props: NativeTransactionEvent) => void,
   never,
   CommandHistory | EditorContext
-> =>
-  Effect.gen(function* () {
+> = Effect.fnUntraced(function* () {
     const history = yield* CommandHistory
     const { id } = yield* EditorContext
 

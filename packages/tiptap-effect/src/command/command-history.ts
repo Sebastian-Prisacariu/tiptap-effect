@@ -78,8 +78,7 @@ export class CommandHistory extends Effect.Service<CommandHistory>()(
       const states = new Map<EditorId, HistoryState>()
       const maxSize = 1000
 
-      const getState = (editorId: EditorId): Effect.Effect<HistoryState> =>
-        Effect.gen(function* () {
+      const getState = Effect.fnUntraced(function* (editorId: EditorId) {
           const existing = states.get(editorId)
           if (existing) return existing
           const past = yield* SubscriptionRef.make<ReadonlyArray<CommandRecord>>([])

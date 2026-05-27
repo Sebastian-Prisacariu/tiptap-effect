@@ -1,11 +1,13 @@
 import { Atom, Registry } from "@effect-atom/atom"
-import { Effect } from "effect"
+import { Effect, Scope } from "effect"
 import { EditorContext } from "./context"
 
-const installEditableSubscription = (
+const installEditableSubscription: (
   editableAtom: Atom.Writable<boolean> | undefined,
-) =>
-  Effect.gen(function* () {
+) => Effect.Effect<void, never, EditorContext | Registry.AtomRegistry | Scope.Scope> =
+  Effect.fnUntraced(function* (
+    editableAtom: Atom.Writable<boolean> | undefined,
+  ) {
     if (editableAtom === undefined) return
 
     const { editor } = yield* EditorContext

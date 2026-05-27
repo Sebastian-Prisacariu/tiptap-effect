@@ -33,92 +33,93 @@ const restoreSelection = (
   }
 }
 
-export const makeCommandHistoryNavigation = (deps: {
+export const makeCommandHistoryNavigation = Effect.fnUntraced(function* (deps: {
   readonly history: CommandHistory
   readonly interruptAllForEditor: (editor: TiptapEditor) => Effect.Effect<void>
-}) =>
-  Effect.gen(function* () {
-    const a3State = yield* Ref.make<ReadonlyMap<EditorId, A3State>>(new Map())
-    const notReversibleEvents =
-      yield* PubSub.unbounded<NotReversibleAttempt>()
+}) {
+  const a3State = yield* Ref.make<ReadonlyMap<EditorId, A3State>>(new Map())
+  const notReversibleEvents =
+    yield* PubSub.unbounded<NotReversibleAttempt>()
 
-    const clearA3State = (editorId: EditorId) =>
-      Ref.update(a3State, (all) => {
-        if (!all.has(editorId)) return all
-        const next = new Map(all)
-        next.delete(editorId)
-        return next
-      })
+  const clearA3State = (editorId: EditorId) =>
+    Ref.update(a3State, (all) => {
+      if (!all.has(editorId)) return all
+      const next = new Map(all)
+      next.delete(editorId)
+      return next
+    })
 
-    const onCommandRecorded = (editorId: EditorId) => clearA3State(editorId)
+  const onCommandRecorded = (editorId: EditorId) => clearA3State(editorId)
 
-    const undo = (
-      editor: TiptapEditor,
-    ): Effect.Effect<CommandRecord | null, unknown> =>
-      Effect.gen(function* () {
-        const editorId = getEditorId(editor)
-        yield* deps.interruptAllForEditor(editor)
-        const last = yield* deps.history.popLast(editorId)
-        if (!last) return null
-        const kind = reverseKind(last.reverseEffect)
-        if (kind === Reverse.skipOnUndo) {
-          return yield* undo(editor)
-        }
-        if (kind === Reverse.notReversible) {
-          const now = Date.now()
-          const prev = (yield* Ref.get(a3State)).get(editorId) ?? null
-          const armed =
-            prev !== null && prev.op === last.op && now - prev.at <= A3_TOGGLE_WINDOW_MS
-          if (armed) {
-            yield* clearA3State(editorId)
-            return yield* undo(editor)
-          }
-          yield* deps.history.pushPreserveFuture(editorId, last)
-          yield* Ref.update(a3State, (all) => {
-            const next = new Map(all)
-            next.set(editorId, { op: last.op, at: now })
-            return next
-          })
-          yield* PubSub.publish(notReversibleEvents, {
-            editorId,
-            op: last.op,
-            at: now,
-          })
-          return yield* new NotReversibleError({ op: last.op })
-        }
-        yield* Effect.sync(() => restoreSelection(editor, last.selection))
-        const reverseFn = getReverseFn(last.reverseEffect)
-        if (reverseFn) {
-          yield* reverseFn(editor, last.output)
-        }
-        yield* deps.history.pushFuture(editorId, last)
+  const undo: (
+    editor: TiptapEditor,
+  ) => Effect.Effect<CommandRecord | null, unknown> = Effect.fnUntraced(function* (
+    editor: TiptapEditor,
+  ) {
+    const editorId = getEditorId(editor)
+    yield* deps.interruptAllForEditor(editor)
+    const last = yield* deps.history.popLast(editorId)
+    if (!last) return null
+    const kind = reverseKind(last.reverseEffect)
+    if (kind === Reverse.skipOnUndo) {
+      return yield* undo(editor)
+    }
+    if (kind === Reverse.notReversible) {
+      const now = Date.now()
+      const prev = (yield* Ref.get(a3State)).get(editorId) ?? null
+      const armed =
+        prev !== null && prev.op === last.op && now - prev.at <= A3_TOGGLE_WINDOW_MS
+      if (armed) {
         yield* clearA3State(editorId)
-        return last
-      })
-
-    const redo = (
-      editor: TiptapEditor,
-    ): Effect.Effect<CommandRecord | null, unknown> =>
-      Effect.gen(function* () {
-        const editorId = getEditorId(editor)
-        const next = yield* deps.history.popFuture(editorId)
-        if (!next) return null
-        const out = yield* next.forwardEffect(editor)
-        yield* deps.history.pushPreserveFuture(editorId, {
-          ...next,
-          output: out,
-          at: Date.now(),
-        })
+        return yield* undo(editor)
+      }
+      yield* deps.history.pushPreserveFuture(editorId, last)
+      yield* Ref.update(a3State, (all) => {
+        const next = new Map(all)
+        next.set(editorId, { op: last.op, at: now })
         return next
       })
-
-    return {
-      undo,
-      redo,
-      onCommandRecorded,
-      notReversibleEvents,
-    } as const
+      yield* PubSub.publish(notReversibleEvents, {
+        editorId,
+        op: last.op,
+        at: now,
+      })
+      return yield* new NotReversibleError({ op: last.op })
+    }
+    yield* Effect.sync(() => restoreSelection(editor, last.selection))
+    const reverseFn = getReverseFn(last.reverseEffect)
+    if (reverseFn) {
+      yield* reverseFn(editor, last.output)
+    }
+    yield* deps.history.pushFuture(editorId, last)
+    yield* clearA3State(editorId)
+    return last
   })
+
+  const redo: (
+    editor: TiptapEditor,
+  ) => Effect.Effect<CommandRecord | null, unknown> = Effect.fnUntraced(function* (
+    editor: TiptapEditor,
+  ) {
+    const editorId = getEditorId(editor)
+    const next = yield* deps.history.popFuture(editorId)
+    if (!next) return null
+    const out = yield* next.forwardEffect(editor)
+    yield* deps.history.pushPreserveFuture(editorId, {
+      ...next,
+      output: out,
+      at: Date.now(),
+    })
+    return next
+  })
+
+  return {
+    undo,
+    redo,
+    onCommandRecorded,
+    notReversibleEvents,
+  } as const
+})
 
 export type CommandHistoryNavigation = Effect.Effect.Success<
   ReturnType<typeof makeCommandHistoryNavigation>

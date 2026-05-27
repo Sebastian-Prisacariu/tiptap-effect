@@ -1,4 +1,4 @@
-import type { JSONContent } from "@tiptap/core";
+import type { Editor as TiptapEditor, JSONContent } from "@tiptap/core";
 import { Effect, Schema } from "effect";
 import {
   defineCommand,
@@ -491,14 +491,13 @@ export const defineEditorCommands = <
         }) as Schema.Schema<{
           readonly savedJSON: DocumentOf<S>;
         }>,
-        forward: () =>
-          Effect.gen(function* () {
-            const editor = yield* CurrentEditor;
-            const tracker = yield* DirtyTracker;
-            const json = document.currentFromState(editor.state);
-            yield* tracker.markSaved(editorId, json);
-            return { savedJSON: json };
-          }),
+        forward: Effect.fnUntraced(function* () {
+          const editor = yield* CurrentEditor;
+          const tracker = yield* DirtyTracker;
+          const json = document.currentFromState(editor.state);
+          yield* tracker.markSaved(editorId, json);
+          return { savedJSON: json };
+        }),
         reverse: Reverse.skipOnUndo,
       }),
     setContent: document.patch({
@@ -543,76 +542,91 @@ export const defineEditorCommands = <
       inputSchema: Schema.Struct({
         pos: Schema.Number,
       }),
-      run: ({ editor, input: { pos } }) =>
-        Effect.gen(function* () {
-          const node = editor.state.doc.nodeAt(pos);
-          if (!node) {
-            return yield* new ContentPositionError({
-              pos,
-              message: `No node found at position ${pos}`,
-            });
-          }
-          editor
-            .chain()
-            .deleteRange({ from: pos, to: pos + node.nodeSize })
-            .run();
-        }),
+      run: Effect.fnUntraced(function* ({
+        editor,
+        input: { pos },
+      }: {
+        readonly editor: TiptapEditor;
+        readonly input: { readonly pos: number };
+      }) {
+        const node = editor.state.doc.nodeAt(pos);
+        if (!node) {
+          return yield* new ContentPositionError({
+            pos,
+            message: `No node found at position ${pos}`,
+          });
+        }
+        editor
+          .chain()
+          .deleteRange({ from: pos, to: pos + node.nodeSize })
+          .run();
+      }),
     }),
     replaceNodeAt: document.patch({
       op: "tiptap-effect.content.replace-node-at",
       description: ({ pos }) => `Replace node at ${pos}`,
       inputSchema: document.inputs.replaceNodeAt,
-      run: ({ editor, input: { pos, content } }) =>
-        Effect.gen(function* () {
-          const node = editor.state.doc.nodeAt(pos);
-          if (!node) {
-            return yield* new ContentPositionError({
-              pos,
-              message: `No node found at position ${pos}`,
-            });
-          }
-          editor
-            .chain()
-            .insertContentAt(
-              { from: pos, to: pos + node.nodeSize },
-              content as JSONContent | string,
-            )
-            .run();
-        }),
+      run: Effect.fnUntraced(function* ({
+        editor,
+        input: { pos, content },
+      }: {
+        readonly editor: TiptapEditor;
+        readonly input: ReplaceNodeAtInput<S>;
+      }) {
+        const node = editor.state.doc.nodeAt(pos);
+        if (!node) {
+          return yield* new ContentPositionError({
+            pos,
+            message: `No node found at position ${pos}`,
+          });
+        }
+        editor
+          .chain()
+          .insertContentAt(
+            { from: pos, to: pos + node.nodeSize },
+            content as JSONContent | string,
+          )
+          .run();
+      }),
     }),
     updateNodeAttrsAt: document.patch({
       op: "tiptap-effect.content.update-node-attrs",
       description: ({ pos, type }) => `Update ${type} attrs at ${pos}`,
       inputSchema: document.inputs.updateAttrsAt,
       outputSchema: document.outputs.updateAttrsAt,
-      run: ({ editor, input: { pos, type, attrs } }) =>
-        Effect.gen(function* () {
-          const node = editor.state.doc.nodeAt(pos);
-          if (!node) {
-            return yield* new ContentPositionError({
-              pos,
-              message: `No node found at position ${pos}`,
-            });
-          }
-          if (node.isText || node.type.name !== type) {
-            return yield* new EditorCommandError({
-              message: `Expected ${type} node at position ${pos}, found ${node.type.name}`,
-            });
-          }
-          const previousAttrs = node.attrs;
-          editor.view.dispatch(
-            editor.state.tr.setNodeMarkup(
-              pos,
-              undefined,
-              { ...node.attrs, ...attrs },
-              node.marks,
-            ),
-          );
-          return {
-            previousAttrs,
-            nodeType: node.type.name,
-          };
-        }),
+      run: Effect.fnUntraced(function* ({
+        editor,
+        input: { pos, type, attrs },
+      }: {
+        readonly editor: TiptapEditor;
+        readonly input: UpdateNodeAttrsAtInput<S>;
+      }) {
+        const node = editor.state.doc.nodeAt(pos);
+        if (!node) {
+          return yield* new ContentPositionError({
+            pos,
+            message: `No node found at position ${pos}`,
+          });
+        }
+        if (node.isText || node.type.name !== type) {
+          return yield* new EditorCommandError({
+            message: `Expected ${type} node at position ${pos}, found ${node.type.name}`,
+          });
+        }
+        const previousAttrs = node.attrs;
+        editor.view.dispatch(
+          editor.state.tr.setNodeMarkup(
+            pos,
+            undefined,
+            { ...node.attrs, ...attrs },
+            node.marks,
+          ),
+        );
+        return {
+          previousAttrs,
+          nodeType: node.type.name,
+        };
+      }),
     }),
     insertContentAtMatch: document.patch({
       op: "tiptap-effect.selector.insert-at-match",
@@ -659,24 +673,31 @@ export const defineEditorCommands = <
         `Update attrs for selector ${selector.type}`,
       inputSchema: document.inputs.updateBySelector,
       select: ({ input }) => ({ selector: input.selector, all: input.all }),
-      applyMatch: ({ editor, match, input: { selector, attrs } }) =>
-        Effect.gen(function* () {
-          const node = editor.state.doc.nodeAt(match.pos);
-          if (!node || node.isText) {
-            return yield* new DocumentSelectorError({
-              selector,
-              message: `Cannot update attrs at position ${match.pos}`,
-            });
-          }
-          editor.view.dispatch(
-            editor.state.tr.setNodeMarkup(
-              match.pos,
-              undefined,
-              { ...node.attrs, ...attrs },
-              node.marks,
-            ),
-          );
-        }),
+      applyMatch: Effect.fnUntraced(function* ({
+        editor,
+        match,
+        input: { selector, attrs },
+      }: {
+        readonly editor: TiptapEditor;
+        readonly match: DocumentMatch;
+        readonly input: UpdateNodeAttrsBySelectorInput<S>;
+      }) {
+        const node = editor.state.doc.nodeAt(match.pos);
+        if (!node || node.isText) {
+          return yield* new DocumentSelectorError({
+            selector,
+            message: `Cannot update attrs at position ${match.pos}`,
+          });
+        }
+        editor.view.dispatch(
+          editor.state.tr.setNodeMarkup(
+            match.pos,
+            undefined,
+            { ...node.attrs, ...attrs },
+            node.marks,
+          ),
+        );
+      }),
     }),
     findMatches: defineCommand({
       op: "tiptap-effect.selector.find",
@@ -693,11 +714,10 @@ export const defineEditorCommands = <
           text: Schema.String,
         }),
       ) as Schema.Schema<ReadonlyArray<DocumentMatch>>,
-      forward: ({ selector }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          return findDocumentMatches(editor.state.doc, selector);
-        }),
+      forward: Effect.fnUntraced(function* ({ selector }: SelectorInput<S>) {
+        const editor = yield* CurrentEditor;
+        return findDocumentMatches(editor.state.doc, selector);
+      }),
       reverse: Reverse.skipOnUndo,
     }),
   };
