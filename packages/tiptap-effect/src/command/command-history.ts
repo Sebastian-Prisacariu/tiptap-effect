@@ -60,7 +60,7 @@ interface HistoryState {
 }
 
 /**
- * Per-editor in-memory linear history of Commands. Each stack is bounded by
+ * Per-editor in-memory linear history of command records. Each stack is bounded by
  * `maxSize`.
  *
  * - `push` clears the future stack (branching).

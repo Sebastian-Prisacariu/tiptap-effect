@@ -13,12 +13,14 @@ import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
 import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
 import { selectedTextAtom } from "tiptap-effect/editor"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+
+const LessonEditor = createEditor(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -60,9 +62,8 @@ describe("useEditorSubscribe", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-subscribe-1")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-subscribe-1"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >

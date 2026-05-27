@@ -1,8 +1,7 @@
 import { Registry, Result } from "@effect-atom/atom"
 import { Effect } from "effect"
 import { afterEach, beforeEach, describe, it } from "vitest"
-import { CommandExecutor } from "tiptap-effect/command"
-import { InsertTextCommand, MarkSavedCommand } from "tiptap-effect/command/commands"
+import { CommandExecutor, defineEditorCommands } from "tiptap-effect/command"
 import { dirtyAtom } from "tiptap-effect/dirty"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { editorRuntime } from "tiptap-effect/runtime"
@@ -16,6 +15,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -34,7 +34,7 @@ afterEach(() => {
 
 /**
  * Run an Effect through the SAME editorRuntime that dirtyAtom subscribes to —
- * critical for tests that need MarkSavedCommand's DirtyTracker writes to be
+ * critical for tests that need commands.markSaved's DirtyTracker writes to be
  * visible to dirtyAtom's reads. Mirrors `runOneShotResult` from src/react/hooks.ts.
  */
 const runViaRuntime = <A, E>(
@@ -92,7 +92,7 @@ const waitForDirty = (
     check(reg.get(atom))
   })
 
-describe("MarkSavedCommand + dirtyAtom", () => {
+describe("commands.markSaved + dirtyAtom", () => {
   it("dispatching MarkSaved flips dirtyAtom from true → false; subsequent typing flips it back to true", async () => {
     const id = EditorId("ed-mark-saved-1")
     const editorAtom = makeEditorAtom({ id, schema: lessonSchema, defaultContent: validDoc })
@@ -105,7 +105,7 @@ describe("MarkSavedCommand + dirtyAtom", () => {
     const dirty = dirtyAtom(id)
     const _keepDirty = registry.subscribe(dirty, () => {})
 
-    const Save = MarkSavedCommand(id)
+    const Save = commands.markSaved(id)
 
     // First, type something so the transactionBus emits and the merged
     // dirty stream observes a current doc snapshot.
@@ -113,7 +113,7 @@ describe("MarkSavedCommand + dirtyAtom", () => {
       registry,
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
-        yield* exec.run(editor, InsertTextCommand, { text: "X" })
+        yield* exec.run(editor, commands.insertText, { text: "X" })
       }),
     )
     await waitForDirty(registry, dirty, true)
@@ -133,7 +133,7 @@ describe("MarkSavedCommand + dirtyAtom", () => {
       registry,
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
-        yield* exec.run(editor, InsertTextCommand, { text: "Y" })
+        yield* exec.run(editor, commands.insertText, { text: "Y" })
       }),
     )
     await waitForDirty(registry, dirty, true)

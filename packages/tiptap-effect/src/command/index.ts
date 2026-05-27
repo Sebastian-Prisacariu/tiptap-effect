@@ -40,5 +40,18 @@ export {
   type SequenceRecord,
   type SequenceCommand,
 } from "./command-sequence"
+export {
+  defineEditorCommands,
+  EditorCommandError,
+  EditorCommandCollisionError,
+  type EditorCommands,
+  type EditorCommandFactoryContext,
+  type EditorCommandHelpers,
+  type EditorCommandOptions,
+  type TypedNodeSelector,
+  type TypedNodeSelectorWithType,
+  type UpdateNodeAttrsAtInput,
+  type UpdateNodeAttrsBySelectorInput,
+} from "./editor-commands"
 export { undoableAtom, redoableAtom, pastRecordsAtom, futureRecordsAtom } from "./internal/history-atoms"
 export { commandPendingAtom } from "./internal/pending-atoms"

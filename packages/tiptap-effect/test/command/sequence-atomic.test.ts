@@ -1,9 +1,8 @@
 import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { CommandExecutor } from "tiptap-effect/command"
+import { CommandExecutor, defineEditorCommands } from "tiptap-effect/command"
 import { Sequence } from "tiptap-effect/command"
-import { InsertTextCommand, ToggleMarkCommand } from "tiptap-effect/command/commands"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
@@ -15,17 +14,18 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
   content: [{ type: "paragraph", content: [{ type: "text", text: "abc" }] }],
 }
 
-const ToggleBold = ToggleMarkCommand("bold")
+const ToggleBold = commands.toggleMark("bold")
 
 const InsertThenBold = Sequence.atomic(
   "test.insert-then-bold",
-  [InsertTextCommand, ToggleBold] as const,
+  [commands.insertText, ToggleBold] as const,
   ([{ text }]) => `Insert ${text} then bold`,
 )
 
@@ -96,8 +96,8 @@ describe("Sequence.atomic", () => {
     handle.mount(document.createElement("div"))
     editor.commands.setTextSelection(1)
 
-    const InsertX = InsertTextCommand
-    const InsertY = InsertTextCommand
+    const InsertX = commands.insertText
+    const InsertY = commands.insertText
 
     const TwoInserts = Sequence.atomic(
       "test.two-inserts",

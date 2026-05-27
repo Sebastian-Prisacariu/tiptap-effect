@@ -2,9 +2,8 @@ import { Registry } from "@effect-atom/atom"
 import { Chunk, Effect, Layer, ManagedRuntime, PubSub, Queue, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { type NotReversibleError, Reverse } from "tiptap-effect/command"
-import { CommandExecutor, type NotReversibleAttempt } from "tiptap-effect/command"
+import { CommandExecutor, defineEditorCommands, type NotReversibleAttempt } from "tiptap-effect/command"
 import { CommandHistory } from "tiptap-effect/command"
-import { InsertTextCommand } from "tiptap-effect/command/commands"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
@@ -16,6 +15,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -117,7 +117,7 @@ describe("CommandExecutor — A3 toggle", () => {
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
         yield* exec.run(editor, SendEmailCmd, undefined)
-        yield* exec.run(editor, InsertTextCommand, { text: "X" })
+        yield* exec.run(editor, commands.insertText, { text: "X" })
         yield* exec.undo(editor)
         const blocked = yield* Effect.either(exec.undo(editor))
         const redone = yield* exec.redo(editor)

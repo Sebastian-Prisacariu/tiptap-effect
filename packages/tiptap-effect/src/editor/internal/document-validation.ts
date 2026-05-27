@@ -1,7 +1,7 @@
 import { generateHTML, type JSONContent } from "@tiptap/core"
 import { Data, Effect, Either, ParseResult, Schema } from "effect"
 import type { EditorSchema, NodeJSON } from "../../schema/define"
-import type { EditorSchemaMarks, EditorSchemaNodes } from "./types"
+import type { EditorSchemaMarks, EditorSchemaNodes, SchemaMismatchPolicy } from "./types"
 
 interface StateWithDocument {
   readonly doc: {
@@ -86,8 +86,19 @@ export const checkDocumentSchema = <
 >(
   schema: EditorSchema<N, M>,
   state: unknown,
-): Effect.Effect<void> =>
-  Effect.try({
+  policy: SchemaMismatchPolicy = "log",
+): Effect.Effect<void, ParseResult.ParseError | DocumentJsonError> => {
+  if (policy === "ignore") return Effect.void
+
+  const onError = (
+    cause: ParseResult.ParseError | DocumentJsonError,
+    message: string,
+  ) =>
+    policy === "throw"
+      ? Effect.fail(cause)
+      : Effect.logWarning(message, { cause })
+
+  return Effect.try({
     try: () => documentJsonFromState(state),
     catch: (cause) => new DocumentJsonError({ cause }),
   }).pipe(
@@ -95,15 +106,16 @@ export const checkDocumentSchema = <
       const decoded = decodeDocumentJson(schema, json)
       if (Either.isRight(decoded)) return Effect.void
 
-      return Effect.logWarning(
-        "[tiptap-effect/devSchemaCheck] editor state document does not match schema.Document",
-        { cause: decoded.left },
+      return onError(
+        decoded.left,
+        "[tiptap-effect/onSchemaMismatch] editor state document does not match schema.Document",
       )
     }),
     Effect.catchAll((cause) =>
-      Effect.logWarning(
-        "[tiptap-effect/devSchemaCheck] could not read editor state document",
-        { cause },
+      onError(
+        cause,
+        "[tiptap-effect/onSchemaMismatch] could not read editor state document",
       ),
     ),
   )
+}

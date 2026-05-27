@@ -4,13 +4,12 @@ import { RegistryContext } from "@effect-atom/atom-react"
 import { Effect } from "effect"
 import * as React from "react"
 import {
-  Commands,
   EditorId,
   EditorScope,
-  type EditorSpec,
   Marks,
   Nodes,
   TiptapView,
+  createEditor,
   defineEditorSchema,
   docAtom,
   isActiveAtom,
@@ -32,6 +31,8 @@ const lessonSchema = defineEditorSchema({
     italic: Marks.ItalicMark,
   },
 })
+
+const LessonEditor = createEditor(lessonSchema)
 
 const defaultContent = {
   type: "doc",
@@ -57,7 +58,7 @@ const Toolbar = () => {
         type="button"
         data-active={boldActive}
         onClick={() =>
-          Effect.runPromise(dispatch(Commands.ToggleMarkCommand("bold"), undefined))
+          Effect.runPromise(dispatch(LessonEditor.commands.toggleMark("bold"), undefined))
         }
       >
         Bold
@@ -71,7 +72,7 @@ const Toolbar = () => {
 }
 
 const PersistencePreview = () => {
-  const doc = useEditorSlice((id) => docAtom(id, lessonSchema), {
+  const doc = useEditorSlice((id) => docAtom(id, LessonEditor.schema), {
     debounceMs: 100,
   })
 
@@ -84,11 +85,9 @@ export const App = () => {
   const registry = React.useMemo(() => Registry.make(), [])
   const spec = React.useMemo(
     () => ({
-      id: editorId,
-      schema: lessonSchema,
       defaultContent,
-      devSchemaCheck: true,
-    }) satisfies EditorSpec<Record<string, unknown>, Record<string, unknown>>,
+      onSchemaMismatch: "log" as const,
+    }),
     [],
   )
 
@@ -96,7 +95,7 @@ export const App = () => {
 
   return (
     <RegistryContext.Provider value={registry}>
-      <EditorScope id={editorId} spec={spec}>
+      <EditorScope id={editorId} editor={LessonEditor} spec={spec}>
         <main>
           <h1>tiptap-effect basic Vite example</h1>
           <Toolbar />

@@ -17,3 +17,5 @@ coverage/
 # pnpm
 .pnpm-store/
 
+packages/*/examples/private/
+.refs/

@@ -7,13 +7,15 @@ import { EditorScope, useEditorSlice } from "tiptap-effect/react"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
 import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 import type { EditorId as EditorIdT } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+
+const LessonEditor = createEditor(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -65,9 +67,8 @@ describe("useEditorSlice — debounceMs overload", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-debounce")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-debounce"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >

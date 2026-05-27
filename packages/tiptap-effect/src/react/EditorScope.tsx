@@ -2,15 +2,24 @@
 
 import type { Atom } from "@effect-atom/atom"
 import * as React from "react"
-import { makeEditorAtom, type EditorHandle, type EditorInitError, type EditorSpec } from "../editor"
+import type { EditorHandle, EditorInitError, EditorSpec } from "../editor"
+import type { CreatedEditor } from "../create-editor"
+import type { AnyEditorSchema } from "../schema"
 import type { EditorId } from "../types"
 import type { Result } from "@effect-atom/atom"
+
+type AnyCreatedEditor = CreatedEditor<AnyEditorSchema, Record<string, unknown>>
+type EditorScopeSpec = Omit<
+  EditorSpec<Record<string, unknown>, Record<string, unknown>>,
+  "id" | "schema"
+>
 
 export interface ScopedEditorContextValue<
   N extends Record<string, unknown> = Record<string, unknown>,
   M extends Record<string, unknown> = Record<string, unknown>,
 > {
   readonly id: EditorId
+  readonly editor: AnyCreatedEditor
   readonly spec: EditorSpec<N, M>
   readonly atom: Atom.Atom<Result.Result<EditorHandle, EditorInitError>>
 }
@@ -29,15 +38,20 @@ export const ScopedEditorContext =
  */
 export const EditorScope: React.FC<{
   id: EditorId
-  spec: EditorSpec<Record<string, unknown>, Record<string, unknown>>
+  editor: AnyCreatedEditor
+  spec: EditorScopeSpec
   children: React.ReactNode
-}> = ({ id, spec, children }) => {
+}> = ({ id, editor, spec, children }) => {
   // Memoise the atom by id. Spec changes on the same id do NOT recreate the
   // atom — surgical updates flow through `editableAtom` etc.
-  const atom = React.useMemo(() => makeEditorAtom(spec), [id])
+  const atom = React.useMemo(() => editor.makeAtom({ id, ...spec }), [editor, id])
+  const fullSpec = React.useMemo(
+    () => ({ id, ...spec, schema: editor.schema }),
+    [editor.schema, id, spec],
+  )
   const value = React.useMemo<ScopedEditorContextValue>(
-    () => ({ id, spec, atom }),
-    [id, spec, atom],
+    () => ({ id, editor, spec: fullSpec, atom }),
+    [id, editor, fullSpec, atom],
   )
   return (
     <ScopedEditorContext.Provider value={value}>

@@ -3,7 +3,6 @@ import { RegistryContext } from "@effect-atom/atom-react"
 import { act, cleanup, render, waitFor } from "@testing-library/react"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { ToggleMarkCommand } from "tiptap-effect/command/commands"
 import {
   EditorScope,
   TiptapView,
@@ -14,19 +13,22 @@ import {
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
 import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
 
+const LessonEditor = createEditor(lessonSchema)
+const commands = LessonEditor.commands
+
 const validDoc = {
   type: "doc",
   content: [{ type: "paragraph", content: [{ type: "text", text: "abc" }] }],
 }
 
-const ToggleBold = ToggleMarkCommand("bold")
+const ToggleBold = commands.toggleMark("bold")
 
 let registry: Registry.Registry
 
@@ -63,9 +65,8 @@ describe("useDispatchPromise + useHistoryPromise", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-dispatch")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-dispatch"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >
@@ -126,9 +127,8 @@ describe("useDispatchPromise + useHistoryPromise", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-rej")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-rej"),
-            schema: lessonSchema,
             defaultContent: { type: "doc", content: [{ type: "callout" }] }, // invalid
           }}
         >
@@ -174,9 +174,8 @@ describe("useDispatchPromise + useHistoryPromise", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-history-a")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-history-a"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >
@@ -185,9 +184,8 @@ describe("useDispatchPromise + useHistoryPromise", () => {
         </EditorScope>
         <EditorScope
           id={EditorId("ed-history-b")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-history-b"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >

@@ -1,8 +1,7 @@
 import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { CommandExecutor } from "tiptap-effect/command"
-import { ToggleMarkCommand } from "tiptap-effect/command/commands"
+import { CommandExecutor, defineEditorCommands } from "tiptap-effect/command"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
@@ -14,13 +13,14 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
   content: [{ type: "paragraph", content: [{ type: "text", text: "abc" }] }],
 }
 
-const ToggleBold = ToggleMarkCommand("bold")
+const ToggleBold = commands.toggleMark("bold")
 
 let registry: Registry.Registry
 
@@ -51,7 +51,7 @@ const provideExecutor = <A, E>(eff: Effect.Effect<A, E, CommandExecutor>) =>
   runtime.runPromise(eff)
 
 describe("CommandExecutor.redo + ToggleMarkCommand", () => {
-  it("dispatching ToggleMarkCommand('bold') toggles bold; undo restores; redo re-applies", async () => {
+  it("dispatching commands.toggleMark('bold') toggles bold; undo restores; redo re-applies", async () => {
     const id = EditorId("ed-redo-1")
     const editorAtom = makeEditorAtom({ id, schema: lessonSchema, defaultContent: validDoc })
     const _keep = registry.subscribe(editorAtom, () => {})

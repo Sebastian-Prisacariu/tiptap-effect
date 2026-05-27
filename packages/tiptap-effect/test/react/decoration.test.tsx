@@ -5,7 +5,7 @@ import { DecorationSet } from "@tiptap/pm/view"
 import { cleanup, render, waitFor } from "@testing-library/react"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 import { EditorScope, TiptapView, reactDecoration } from "tiptap-effect/react"
 import {
   BoldMark,
@@ -23,6 +23,8 @@ const lessonSchema = defineEditorSchema({
   },
   marks: { bold: BoldMark },
 })
+
+const LessonEditor = createEditor(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -67,9 +69,8 @@ describe("reactDecoration", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-decoration")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-decoration"),
-            schema: lessonSchema,
             defaultContent: validDoc,
             editorProps: {
               decorations(state: EditorState) {

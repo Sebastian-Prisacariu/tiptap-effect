@@ -15,6 +15,7 @@ export class SchemaCollisionError extends Data.TaggedError("SchemaCollisionError
 
 export type EditorSchemaNodes = Record<string, unknown>
 export type EditorSchemaMarks = Record<string, unknown>
+export type SchemaMismatchPolicy = "throw" | "log" | "ignore"
 
 export interface EditorSpec<
   N extends EditorSchemaNodes = EditorSchemaNodes,
@@ -40,10 +41,9 @@ export interface EditorSpec<
    */
   readonly editorPropsAtom?: Atom.Writable<Record<string, unknown>>
   /**
-   * Dev-only sanity check. When `true`, after every transaction we decode
-   * the current `state.doc.toJSON()` result against `schema.Document` and
-   * log schema mismatches through Effect logging. Off by default — turning it
-   * on in production adds an O(doc-size) decode per transaction.
+   * Policy for editor-state documents that no longer decode against
+   * `schema.Document`. Defaults to `"log"`. Set to `"ignore"` to skip the
+   * per-transaction decode, or `"throw"` to fail fast on mismatch.
    */
-  readonly devSchemaCheck?: boolean
+  readonly onSchemaMismatch?: SchemaMismatchPolicy
 }

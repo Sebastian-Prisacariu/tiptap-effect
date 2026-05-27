@@ -19,7 +19,7 @@ import {
   selectedNodeAtom,
   selectionAtom,
 } from "tiptap-effect/editor"
-import { ToggleMarkCommand } from "tiptap-effect/command/commands"
+import { defineEditorCommands } from "tiptap-effect/command"
 import { EditorId } from "tiptap-effect"
 import { waitForAtom } from "./helpers/atom"
 
@@ -27,6 +27,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode, heading: HeadingNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -155,7 +156,7 @@ describe("slices", () => {
       schema: lessonSchema,
       defaultContent: validDoc,
     })
-    const canToggleBold = canExecuteAtom(id, ToggleMarkCommand("bold"), undefined)
+    const canToggleBold = canExecuteAtom(id, commands.toggleMark("bold"), undefined)
 
     const _keepEditor = registry.subscribe(editorAtom, () => {})
     const _keepCanExecute = registry.subscribe(canToggleBold, () => {})

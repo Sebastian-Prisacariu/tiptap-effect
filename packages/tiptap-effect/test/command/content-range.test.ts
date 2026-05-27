@@ -1,13 +1,7 @@
 import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { CommandExecutor, type EditorRunnableCommand } from "tiptap-effect/command"
-import {
-  DeleteRangeCommand,
-  InsertContentAtCommand,
-  ReplaceRangeCommand,
-  UpdateNodeAttrsCommand,
-} from "tiptap-effect/command/commands"
+import { CommandExecutor, defineEditorCommands, type EditorRunnableCommand } from "tiptap-effect/command"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { DocNode, HeadingNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
@@ -18,6 +12,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, heading: HeadingNode, text: TextNode },
   marks: {},
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -79,7 +74,7 @@ describe("position/range content commands", () => {
     const editor = await mountEditor("ed-insert-at")
     const before = editor.getJSON()
 
-    await runCommand(editor, InsertContentAtCommand, { pos: 2, content: "X" })
+    await runCommand(editor, commands.insertContentAt, { pos: 2, content: "X" })
     expect(editor.getText()).toBe("aXbc")
 
     await undo(editor)
@@ -90,7 +85,7 @@ describe("position/range content commands", () => {
     const editor = await mountEditor("ed-replace-range")
     const before = editor.getJSON()
 
-    await runCommand(editor, ReplaceRangeCommand, { from: 2, to: 4, content: "YZ" })
+    await runCommand(editor, commands.replaceRange, { from: 2, to: 4, content: "YZ" })
     expect(editor.getText()).toBe("aYZ")
 
     await undo(editor)
@@ -101,7 +96,7 @@ describe("position/range content commands", () => {
     const editor = await mountEditor("ed-delete-range")
     const before = editor.getJSON()
 
-    await runCommand(editor, DeleteRangeCommand, { from: 2, to: 4 })
+    await runCommand(editor, commands.deleteRange, { from: 2, to: 4 })
     expect(editor.getText()).toBe("a")
 
     await undo(editor)
@@ -120,8 +115,9 @@ describe("position/range content commands", () => {
       return true
     })
 
-    await runCommand(editor, UpdateNodeAttrsCommand, {
+    await runCommand(editor, commands.updateNodeAttrsAt, {
       pos: headingPos,
+      type: "heading",
       attrs: { level: 2 },
     })
     expect(editor.getJSON().content?.[0]?.attrs).toEqual({ level: 2 })

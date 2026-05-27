@@ -2,6 +2,7 @@
   "name": "tiptap-effect-workspace",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "packageManager": "pnpm@10.24.0",
   "scripts": {
     "typecheck": "pnpm -r typecheck",

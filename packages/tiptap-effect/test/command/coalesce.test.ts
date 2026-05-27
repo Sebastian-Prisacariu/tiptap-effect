@@ -1,9 +1,8 @@
 import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { CommandExecutor } from "tiptap-effect/command"
+import { CommandExecutor, defineEditorCommands } from "tiptap-effect/command"
 import { CommandHistory } from "tiptap-effect/command"
-import { InsertTextCommand } from "tiptap-effect/command/commands"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
@@ -15,6 +14,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -52,7 +52,7 @@ describe("CommandExecutor — coalescing", () => {
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
         for (const ch of "0123456789") {
-          yield* exec.run(editor, InsertTextCommand, { text: ch })
+          yield* exec.run(editor, commands.insertText, { text: ch })
         }
       }),
     )
@@ -84,7 +84,7 @@ describe("CommandExecutor — coalescing", () => {
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
         for (const ch of "wxyz") {
-          yield* exec.run(editor, InsertTextCommand, { text: ch })
+          yield* exec.run(editor, commands.insertText, { text: ch })
         }
         // Single undo should peel the merged record off
         yield* exec.undo(editor)
@@ -107,13 +107,13 @@ describe("CommandExecutor — coalescing", () => {
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
         // First run of inserts (will coalesce together)
-        yield* exec.run(editor, InsertTextCommand, { text: "a" })
-        yield* exec.run(editor, InsertTextCommand, { text: "b" })
+        yield* exec.run(editor, commands.insertText, { text: "a" })
+        yield* exec.run(editor, commands.insertText, { text: "b" })
         // Undo — pops the merged "ab" entry
         yield* exec.undo(editor)
         // Type a new char — should NOT coalesce with the redo-future entry
-        yield* exec.run(editor, InsertTextCommand, { text: "c" })
-        yield* exec.run(editor, InsertTextCommand, { text: "d" })
+        yield* exec.run(editor, commands.insertText, { text: "c" })
+        yield* exec.run(editor, commands.insertText, { text: "d" })
       }),
     )
 

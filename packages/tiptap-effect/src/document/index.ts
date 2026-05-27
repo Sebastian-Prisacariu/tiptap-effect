@@ -4,4 +4,4 @@ export {
   findDocumentMatches,
   type DocumentMatch,
   type DocumentSelector,
-} from "../command/commands/document-selector"
+} from "./selector"

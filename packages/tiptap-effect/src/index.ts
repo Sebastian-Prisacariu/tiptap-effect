@@ -3,10 +3,23 @@
 
 export const PACKAGE_NAME = "tiptap-effect"
 
+export {
+  createEditor,
+  type CreatedEditor,
+} from "./create-editor"
+
 // Schema layer
 export {
   defineEditorSchema,
   type EditorSchema,
+  type AnyEditorSchema,
+  type DocumentOf,
+  type NodeOf,
+  type MarkOf,
+  type InsertableNodeOf,
+  type InsertableContentOf,
+  type NodeNameOf,
+  type AttrsOfNode,
   type NodeJSON,
   type MarkJSON,
 } from "./schema/define"
@@ -33,6 +46,7 @@ export {
   SchemaCollisionError,
   type EditorSpec,
   type EditorHandle,
+  type SchemaMismatchPolicy,
 } from "./editor"
 
 // Runtime + services
@@ -74,6 +88,17 @@ export {
   sequenceRecordSchema,
   type SequenceRecord,
   type SequenceCommand,
+  defineEditorCommands,
+  EditorCommandError,
+  EditorCommandCollisionError,
+  type EditorCommands,
+  type EditorCommandFactoryContext,
+  type EditorCommandHelpers,
+  type EditorCommandOptions,
+  type TypedNodeSelector,
+  type TypedNodeSelectorWithType,
+  type UpdateNodeAttrsAtInput,
+  type UpdateNodeAttrsBySelectorInput,
   undoableAtom,
   redoableAtom,
   commandPendingAtom,
@@ -102,8 +127,6 @@ export { generateHTML } from "@tiptap/core"
 // Dirty tracking atoms
 export { dirtyAtom, lastSavedAtom } from "./dirty"
 
-// Built-in commands
-export * as Commands from "./command/commands/index"
 export * as DocumentSelectors from "./document/index"
 
 // React layer

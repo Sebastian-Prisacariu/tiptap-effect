@@ -166,7 +166,7 @@ const atomic = <
           // setContent signature varies across Tiptap versions — use the
           // single-arg form which always replaces the doc.
           editor.chain().setContent(docBefore).run()
-          return yield* Effect.fail(new SequenceFailure({ props: { op } }))
+          return yield* new SequenceFailure({ props: { op } })
         }
         return captured as unknown as StepOutputs<Steps>
       }),
@@ -303,17 +303,15 @@ const sequential = <
           }
           yield* Effect.either(rev(prevInput, prevOut))
         }
-        return yield* Effect.fail(
-          new PartialFailure({
-            props: {
-              op,
-              failedAt: i,
-              rolledBackThrough: i - 1,
-              irreversibleAt,
-              cause: result.left,
-            },
-          }),
-        )
+        return yield* new PartialFailure({
+          props: {
+            op,
+            failedAt: i,
+            rolledBackThrough: i - 1,
+            irreversibleAt,
+            cause: result.left,
+          },
+        })
       }
       return outputs as unknown as AnyStepOutputs<Steps>
     })

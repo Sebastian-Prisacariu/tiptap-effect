@@ -17,12 +17,14 @@ import {
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
 import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+
+const LessonEditor = createEditor(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -89,9 +91,8 @@ describe("useCommandPending", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-pending-1")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-pending-1"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >
@@ -162,9 +163,8 @@ describe("useCommandPending", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-pending-a")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-pending-a"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >
@@ -173,9 +173,8 @@ describe("useCommandPending", () => {
         </EditorScope>
         <EditorScope
           id={EditorId("ed-pending-b")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-pending-b"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >
@@ -228,9 +227,8 @@ describe("useCommandErrors", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-errors-1")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-errors-1"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >
@@ -300,9 +298,8 @@ describe("useCommandErrors", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-errors-a")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-errors-a"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >
@@ -311,9 +308,8 @@ describe("useCommandErrors", () => {
         </EditorScope>
         <EditorScope
           id={EditorId("ed-errors-b")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-errors-b"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >

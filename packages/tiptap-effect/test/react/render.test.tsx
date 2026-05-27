@@ -9,12 +9,14 @@ import { useRawEditor } from "tiptap-effect/react"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
 import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+
+const LessonEditor = createEditor(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -40,9 +42,7 @@ describe("<TiptapView /> in <EditorScope>", () => {
   it("renders the editor's contenteditable into the DOM", async () => {
     const { container } = render(
       <Wrapper>
-        <EditorScope id={EditorId("ed-react-1")} spec={{
-          id: EditorId("ed-react-1"),
-          schema: lessonSchema,
+        <EditorScope id={EditorId("ed-react-1")} editor={LessonEditor} spec={{
           defaultContent: validDoc,
         }}>
           <TiptapView />
@@ -59,16 +59,12 @@ describe("<TiptapView /> in <EditorScope>", () => {
   it("two sibling EditorScopes produce two distinct editors", async () => {
     const { container } = render(
       <Wrapper>
-        <EditorScope id={EditorId("ed-A")} spec={{
-          id: EditorId("ed-A"),
-          schema: lessonSchema,
+        <EditorScope id={EditorId("ed-A")} editor={LessonEditor} spec={{
           defaultContent: validDoc,
         }}>
           <TiptapView />
         </EditorScope>
-        <EditorScope id={EditorId("ed-B")} spec={{
-          id: EditorId("ed-B"),
-          schema: lessonSchema,
+        <EditorScope id={EditorId("ed-B")} editor={LessonEditor} spec={{
           defaultContent: validDoc,
         }}>
           <TiptapView />
@@ -94,9 +90,7 @@ describe("<TiptapView /> in <EditorScope>", () => {
 
     render(
       <Wrapper>
-        <EditorScope id={EditorId("ed-raw")} spec={{
-          id: EditorId("ed-raw"),
-          schema: lessonSchema,
+        <EditorScope id={EditorId("ed-raw")} editor={LessonEditor} spec={{
           defaultContent: validDoc,
         }}>
           <TiptapView />

@@ -4,7 +4,6 @@ import { act, cleanup, render, waitFor } from "@testing-library/react"
 import { Effect } from "effect"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { ToggleMarkCommand } from "tiptap-effect/command/commands"
 import {
   EditorScope,
   TiptapView,
@@ -15,19 +14,22 @@ import {
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
 import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
 
+const LessonEditor = createEditor(lessonSchema)
+const commands = LessonEditor.commands
+
 const validDoc = {
   type: "doc",
   content: [{ type: "paragraph", content: [{ type: "text", text: "abc" }] }],
 }
 
-const ToggleBold = ToggleMarkCommand("bold")
+const ToggleBold = commands.toggleMark("bold")
 
 let registry: Registry.Registry
 
@@ -62,9 +64,8 @@ describe("useDispatch", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-dispatch-eff")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-dispatch-eff"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >
@@ -111,9 +112,8 @@ describe("useDispatchPromise", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-dispatch-prom")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-dispatch-prom"),
-            schema: lessonSchema,
             defaultContent: validDoc,
           }}
         >

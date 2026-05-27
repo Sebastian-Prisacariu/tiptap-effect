@@ -5,8 +5,8 @@ import type { EditorId } from "../types"
 import { DirtyTracker } from "./internal/tracker"
 
 /**
- * The doc JSON of the most recent `MarkSavedCommand` for `editorId`. `null`
- * until the first MarkSaved is dispatched.
+ * The doc JSON of the most recent editor `markSaved` command for
+ * `editorId`. `null` until the first save marker is dispatched.
  */
 export const lastSavedAtom = (editorId: EditorId) =>
   editorRuntime.atom(
@@ -23,13 +23,13 @@ type DirtyEvent =
   | { readonly tag: "saved"; readonly doc: unknown }
 
 /**
- * `true` when the doc has changed since the most recent `MarkSavedCommand`.
+ * `true` when the doc has changed since the most recent editor `markSaved`
+ * command.
  *
  * Implementation: merges the per-editor TransactionBus + DirtyTracker streams
  * into one DirtyEvent stream and recomputes `JSON.stringify(doc) !==
- * JSON.stringify(lastSaved)` on every event. Before any MarkSaved has fired
- * the editor is considered dirty (consumer should `MarkSaved` at mount-time
- * to start clean).
+ * JSON.stringify(lastSaved)` on every event. Before any save marker has fired
+ * the editor is considered dirty.
  */
 export const dirtyAtom = (editorId: EditorId) =>
   editorRuntime.atom(

@@ -4,6 +4,10 @@ An atom-driven Tiptap wrapper. Replaces `@tiptap/react` with a design built on
 [Effect](https://effect.website/) and
 [`@effect-atom/atom`](https://github.com/tim-smart/effect-atom).
 
+## License
+
+MIT. See [LICENSE.md](../../LICENSE.md).
+
 ## Why
 
 `@tiptap/react` ships with a stack of workarounds for React/Tiptap impedance
@@ -23,7 +27,7 @@ typed undo. React reads from this layer; it never owns the editor.
 | **Editor lifecycle** | Atom-owned; `editor.destroy()` runs as a Scope finalizer, exactly once. |
 | **StrictMode** | Survives via atom-registry idle TTL — no scheduled-destroy hacks. |
 | **Re-renders** | Equality-checked slice atoms; subscribers only notify when their projection changes. |
-| **Mutations** | Every action is a `Command` with `inputSchema`, `outputSchema`, typed `forward`/`reverse`. |
+| **Mutations** | Schema-bound built-ins plus app commands, all with typed input/output and typed undo. |
 | **Undo/redo** | Effect-native history; PM's `History` plugin disabled. Branching, redo, `Reverse.notReversible`/`skipOnUndo` semantics. |
 | **Macros** | `Sequence.atomic` (one PM transaction) + `Sequence.sequential` (auto-rollback on failure with typed `PartialFailure`). |
 | **Schema** | `defineEditorSchema` generates a discriminated-union Effect Schema for the doc plus the Tiptap node/mark extensions, from one declaration. |
@@ -35,24 +39,20 @@ typed undo. React reads from this layer; it never owns the editor.
 ```tsx
 import { Registry } from "@effect-atom/atom"
 import { RegistryContext } from "@effect-atom/atom-react"
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 import * as React from "react"
 import {
-  Commands,
   EditorId,
   EditorScope,
-  type EditorSpec,
   Marks,
   Nodes,
   TiptapView,
+  createEditor,
   defineEditorSchema,
-  defineEditorCommand,
-  reactNodeView,
   selectionAtom,
   useDispatch,
   useEditorSlice,
   useHistory,
-  useNodeViewProps,
 } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
@@ -67,6 +67,8 @@ const lessonSchema = defineEditorSchema({
     italic: Marks.ItalicMark,
   },
 })
+
+const LessonEditor = createEditor(lessonSchema)
 
 const initialContent = {
   type: "doc",
@@ -84,7 +86,7 @@ function Toolbar() {
       <button
         type="button"
         onClick={() =>
-          Effect.runPromise(dispatch(Commands.ToggleMarkCommand("bold"), undefined))
+          Effect.runPromise(dispatch(LessonEditor.commands.toggleMark("bold"), undefined))
         }
       >
         Bold
@@ -105,10 +107,8 @@ export function App() {
   const registry = React.useMemo(() => Registry.make(), [])
   const spec = React.useMemo(
     () => ({
-      id: editorId,
-      schema: lessonSchema,
       defaultContent: initialContent,
-    }) satisfies EditorSpec<Record<string, unknown>, Record<string, unknown>>,
+    }),
     [],
   )
 
@@ -116,7 +116,7 @@ export function App() {
 
   return (
     <RegistryContext.Provider value={registry}>
-      <EditorScope id={editorId} spec={spec}>
+      <EditorScope id={editorId} editor={LessonEditor} spec={spec}>
         <Toolbar />
         <TiptapView />
         <SelectionDebug />
@@ -125,6 +125,105 @@ export function App() {
   )
 }
 ```
+
+## Schema-First Editors
+
+The package starts from your document model, not from a React component. Define
+nodes once, then build an editor kit whose commands, atoms, and document JSON all
+share that schema.
+
+```ts
+import { Effect, Schema } from "effect"
+import {
+  type DocumentOf,
+  Marks,
+  Nodes,
+  createEditor,
+  defineEditorSchema,
+  defineNodeDefinition,
+  useDispatch,
+} from "tiptap-effect"
+
+const CalloutNode = defineNodeDefinition({
+  name: "callout",
+  attrsSchema: Schema.Struct({
+    tone: Schema.Literal("info", "warning"),
+    title: Schema.String,
+  }),
+  group: "block",
+  content: "inline*",
+  parseHTML: () => [{ tag: "aside[data-callout]" }],
+  renderHTML: ({ HTMLAttributes }) => [
+    "aside",
+    { ...HTMLAttributes, "data-callout": "" },
+    0,
+  ],
+})
+
+const lessonSchema = defineEditorSchema({
+  nodes: {
+    doc: Nodes.DocNode,
+    paragraph: Nodes.ParagraphNode,
+    heading: Nodes.HeadingNode,
+    callout: CalloutNode,
+    text: Nodes.TextNode,
+  },
+  marks: {
+    bold: Marks.BoldMark,
+    italic: Marks.ItalicMark,
+  },
+})
+
+type LessonDocument = DocumentOf<typeof lessonSchema>
+
+const LessonEditor = createEditor(lessonSchema)
+```
+
+Now the built-ins know your schema:
+
+```ts
+const dispatch = useDispatch()
+
+const content: LessonDocument = {
+  type: "doc",
+  content: [
+    {
+      type: "callout",
+      attrs: { tone: "info", title: "Remember" },
+      content: [{ type: "text", text: "Schema drives the editor." }],
+    },
+  ],
+}
+
+await Effect.runPromise(
+  dispatch(LessonEditor.commands.setContent, { content }),
+)
+
+await Effect.runPromise(
+  dispatch(LessonEditor.commands.updateNodeAttrsBySelector, {
+    selector: { type: "callout", attrs: { tone: "info" } },
+    attrs: { tone: "warning" },
+  }),
+)
+```
+
+And TypeScript catches schema drift at the command boundary:
+
+```ts
+dispatch(LessonEditor.commands.updateNodeAttrsBySelector, {
+  selector: { type: "callout" },
+  attrs: { level: 2 },
+  //       ^^^^^ callout attrs are { tone, title }, not heading attrs
+})
+
+dispatch(LessonEditor.commands.findMatches, {
+  selector: { textIncludes: "Remember", attrs: { tone: "info" } },
+  //                                   ^^^^^ attrs require selector.type
+})
+```
+
+With default Tiptap, these usually become `JSONContent` or `Record<string, any>`
+mistakes. Here, the app-facing command API knows the document schema.
 
 ## Slice Atoms
 
@@ -139,10 +238,10 @@ selectedTextAtom(id)
 hasSelectionAtom(id)
 isCollapsedAtom(id)
 isActiveAtom(id, "bold")
-canExecuteAtom(id, Commands.ToggleMarkCommand("bold"), undefined)
+canExecuteAtom(id, LessonEditor.commands.toggleMark("bold"), undefined)
 plainTextAtom(id)
-docAtom(id, lessonSchema)
-htmlAtom(id, lessonSchema)
+LessonEditor.atoms.document(id)
+LessonEditor.atoms.html(id)
 ```
 
 `docAtom` decodes the current editor document against `schema.Document` and
@@ -151,42 +250,63 @@ an initial `"init"` snapshot when it boots, so `docAtom`, `htmlAtom`,
 `plainTextAtom`, and selection slices expose the loaded document before the user
 types.
 
-Use `useEditorSlice((id) => docAtom(id, lessonSchema), { debounceMs: 1500 })`
+Use `useEditorSlice((id) => LessonEditor.atoms.document(id), { debounceMs: 1500 })`
 for persistence wiring so rapid typing produces one save-side emission per
 window. Because the initial document is a real emission, autosave code should
 treat `docAtom` as a read subscription, not a save policy by itself. Gate POSTs
-with `dirtyAtom`, `MarkSavedCommand`, or an explicit "skip first emission" guard
-when you only want to save user edits.
+with `dirtyAtom`, `LessonEditor.commands.markSaved(editorId)`, or an explicit
+"skip first emission" guard when you only want to save user edits.
 
 ## Commands
 
-Commands are the only supported mutation path. Each command owns an input
-schema, output schema, forward effect, and reverse behavior. Editor commands
-receive the current editor through the `CurrentEditor` service rather than
-through React props.
+Commands are the only supported mutation path. Built-ins live on the editor
+returned by `createEditor`, so command inputs decode against the same document
+schema as the editor.
 
 Built-ins cover common toolbar actions and precise document patching:
-`InsertTextCommand`, `InsertContentAtCommand`, `ReplaceRangeCommand`,
-`DeleteRangeCommand`, `DeleteNodeAtCommand`, `ReplaceNodeAtCommand`,
-`UpdateNodeAttrsCommand`, `SetContentCommand`, `ClearContentCommand`,
-`ToggleMarkCommand`, `SetHeadingCommand`, `SetParagraphCommand`,
-`SetLinkCommand`, `FocusCommand`, `BlurCommand`, and `MarkSavedCommand`.
+`LessonEditor.commands.insertText`, `setContent`, `clearContent`,
+`insertContentAt`, `replaceRange`, `deleteRange`, `deleteNodeAt`,
+`replaceNodeAt`, `updateNodeAttrsAt`, `findMatches`, `replaceMatches`,
+`deleteMatches`, `updateNodeAttrsBySelector`, `toggleMark`, `setHeading`,
+`setParagraph`, `setLink`, `focus`, `blur`, and `markSaved`.
 
 ```ts
-const InsertCalloutCommand = defineEditorCommand({
-  op: "lesson.callout.insert",
-  description: () => "Insert callout",
-  inputSchema: Schema.Struct({ text: Schema.String }),
-  outputSchema: Schema.Struct({ from: Schema.Number, to: Schema.Number }),
-  capturesSelection: true,
-  apply: (chain, input) => chain.insertContent(`<p>${input.text}</p>`),
-  reverseSetup: (state) => {
-    const selection = state.selection as { from: number; to: number }
-    return { from: selection.from, to: selection.to }
-  },
-  applyReverse: (chain, _input, output) =>
-    chain.deleteRange({ from: output.from, to: output.to }),
+const LessonEditor = createEditor(lessonSchema, {
+  commands: ({ editorCommand, helpers, schema }) => ({
+    insertCallout: editorCommand({
+      op: "lesson.callout.insert",
+      description: () => "Insert callout",
+      inputSchema: Schema.Struct({
+        title: Schema.String,
+        tone: Schema.Literal("info", "warning"),
+      }),
+      outputSchema: Schema.Struct({ previousContent: schema.Document }),
+      capturesSelection: true,
+      reverseSetup: (state) => ({
+        previousContent: helpers.documentFromState(state),
+      }),
+      apply: (chain, input) =>
+        chain.insertContent({
+          type: "callout",
+          attrs: { title: input.title, tone: input.tone },
+          content: [{ type: "text", text: input.title }],
+        }),
+      applyReverse: (chain, _input, output) =>
+        chain.setContent(output.previousContent),
+    }),
+  }),
 })
+```
+
+Custom commands appear on the same object as the built-ins:
+
+```ts
+await Effect.runPromise(
+  dispatch(LessonEditor.commands.insertCallout, {
+    title: "Check your assumptions",
+    tone: "warning",
+  }),
+)
 ```
 
 `Reverse.notReversible` blocks the first undo attempt and emits a typed event.
@@ -213,7 +333,7 @@ NodeViews are rendered as portals from `<TiptapView />`, so `RegistryContext`,
 without passing editor instances through props.
 
 For common structural edits, prefer `useNodeViewActions()` over raw editor
-access. It dispatches Commands under the hood, so updates remain auditable and
+access. It dispatches editor commands under the hood, so updates remain auditable and
 undoable:
 
 ```tsx
@@ -226,17 +346,5 @@ const MediaBlock = reactNodeView(() => {
       Rename
     </button>
   )
-})
-```
-
-Project schemas can use `defineNodeDefinition` and `defineMarkDefinition` to
-preserve literal names and strict attrs types without repeating casts:
-
-```ts
-const QuizNode = defineNodeDefinition({
-  name: "quiz",
-  attrsSchema: Schema.Struct({ prompt: Schema.String }),
-  group: "block",
-  atom: true,
 })
 ```

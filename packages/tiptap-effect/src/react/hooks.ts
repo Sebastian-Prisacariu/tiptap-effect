@@ -16,11 +16,6 @@ import {
   type NotReversibleError,
   type TransactionalRollbackError,
 } from "../command"
-import {
-  DeleteNodeAtCommand,
-  ReplaceNodeAtCommand,
-  UpdateNodeAttrsCommand,
-} from "../command/commands"
 import { editorRuntime } from "../runtime"
 import { useEditorScope } from "./EditorScope"
 import { useNodeViewProps } from "./NodeViewContext"
@@ -417,7 +412,8 @@ export const useNodeViewActions = <Attrs extends Record<string, unknown> = Recor
   ) => Effect.Effect<unknown, DispatchError<unknown> | Error>
 } => {
   const dispatch = useDispatch()
-  const { getPos } = useNodeViewProps<Attrs>()
+  const { nodeType, getPos } = useNodeViewProps<Attrs>()
+  const { editor } = useEditorScope()
 
   const requirePos = React.useCallback((): Effect.Effect<number, Error> =>
     Effect.sync(() => getPos()).pipe(
@@ -432,21 +428,22 @@ export const useNodeViewActions = <Attrs extends Record<string, unknown> = Recor
     () => ({
       updateAttrs: (attrs) =>
         Effect.flatMap(requirePos(), (pos) =>
-          dispatch(UpdateNodeAttrsCommand, {
+          dispatch(editor.commands.updateNodeAttrsAt, {
             pos,
+            type: nodeType,
             attrs: attrs as Record<string, unknown>,
           }),
         ),
       deleteNode: () =>
         Effect.flatMap(requirePos(), (pos) =>
-          dispatch(DeleteNodeAtCommand, { pos }),
+          dispatch(editor.commands.deleteNodeAt, { pos }),
         ),
       replaceNode: (content) =>
         Effect.flatMap(requirePos(), (pos) =>
-          dispatch(ReplaceNodeAtCommand, { pos, content }),
+          dispatch(editor.commands.replaceNodeAt, { pos, content: content as never }),
         ),
     }),
-    [dispatch, requirePos],
+    [dispatch, editor.commands, nodeType, requirePos],
   )
 }
 

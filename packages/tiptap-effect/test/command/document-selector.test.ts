@@ -1,15 +1,10 @@
 import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { CommandExecutor, type EditorRunnableCommand } from "tiptap-effect/command"
+import { CommandExecutor, defineEditorCommands, type EditorRunnableCommand } from "tiptap-effect/command"
 import {
-  DeleteMatchesCommand,
-  FindMatchesCommand,
-  InsertContentAtMatchCommand,
-  ReplaceMatchesCommand,
-  UpdateNodeAttrsBySelectorCommand,
   findDocumentMatches,
-} from "tiptap-effect/command/commands"
+} from "tiptap-effect/document"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { DocNode, HeadingNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
@@ -20,6 +15,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, heading: HeadingNode, text: TextNode },
   marks: {},
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const doc = {
   type: "doc",
@@ -100,7 +96,7 @@ describe("document-native selectors", () => {
 
   it("FindMatchesCommand returns serialisable match records", async () => {
     const editor = await mountEditor("ed-selector-command-find")
-    const matches = await runCommand(editor, FindMatchesCommand, {
+    const matches = await runCommand(editor, commands.findMatches, {
       selector: { type: "heading" },
     })
 
@@ -112,7 +108,7 @@ describe("document-native selectors", () => {
     const editor = await mountEditor("ed-selector-replace")
     const before = editor.getJSON()
 
-    const result = await runCommand(editor, ReplaceMatchesCommand, {
+    const result = await runCommand(editor, commands.replaceMatches, {
       selector: { type: "heading", text: "Intro" },
       content: { type: "paragraph", content: [{ type: "text", text: "Replaced" }] },
     })
@@ -128,7 +124,7 @@ describe("document-native selectors", () => {
     const editor = await mountEditor("ed-selector-delete")
     const before = editor.getJSON()
 
-    const result = await runCommand(editor, DeleteMatchesCommand, {
+    const result = await runCommand(editor, commands.deleteMatches, {
       selector: { type: "paragraph" },
       all: true,
     })
@@ -143,7 +139,7 @@ describe("document-native selectors", () => {
   it("updates attrs and inserts relative to a matched node", async () => {
     const editor = await mountEditor("ed-selector-update-insert")
 
-    await runCommand(editor, UpdateNodeAttrsBySelectorCommand, {
+    await runCommand(editor, commands.updateNodeAttrsBySelector, {
       selector: { type: "heading", text: "Details" },
       attrs: { level: 3 },
     })
@@ -153,7 +149,7 @@ describe("document-native selectors", () => {
     })[0]
     expect(updated?.attrs).toMatchObject({ level: 3 })
 
-    await runCommand(editor, InsertContentAtMatchCommand, {
+    await runCommand(editor, commands.insertContentAtMatch, {
       selector: { type: "heading", text: "Details" },
       at: "after",
       content: { type: "paragraph", content: [{ type: "text", text: "Inserted after details" }] },

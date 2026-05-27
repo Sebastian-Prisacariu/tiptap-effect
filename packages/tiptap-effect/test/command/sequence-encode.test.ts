@@ -1,7 +1,17 @@
 import { Effect, Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { Sequence, sequenceRecordSchema } from "tiptap-effect/command"
-import { InsertTextCommand } from "tiptap-effect/command/commands"
+import { defineEditorCommand, Sequence, sequenceRecordSchema } from "tiptap-effect/command"
+
+const InsertTextCommand = defineEditorCommand({
+  op: "test.insert.text",
+  description: ({ text }) => `Insert ${text}`,
+  inputSchema: Schema.Struct({ text: Schema.String }),
+  outputSchema: Schema.Struct({ from: Schema.Number, length: Schema.Number }),
+  apply: (chain, { text }) => chain.insertContent(text),
+  reverseSetup: (state, { text }) => ({ from: state.selection.from, length: text.length }),
+  applyReverse: (chain, _input, { from, length }) =>
+    chain.deleteRange({ from, to: from + length }),
+})
 
 describe("Sequence — record encode/decode", () => {
   it("toRecord(inputs) produces { op, steps: [{op, input}, ...] }", () => {

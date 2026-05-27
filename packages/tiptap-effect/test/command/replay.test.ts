@@ -5,10 +5,10 @@ import {
   CommandExecutor,
   CommandHistory,
   defineCommand,
+  defineEditorCommands,
   ReplayDivergenceError,
 } from "tiptap-effect/command"
 import type { CommandRecord } from "tiptap-effect/command"
-import { ToggleMarkCommand } from "tiptap-effect/command/commands"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { editorRuntime } from "tiptap-effect/runtime"
 import { defineEditorSchema } from "tiptap-effect/schema"
@@ -21,6 +21,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -61,7 +62,7 @@ const runViaRuntime = <A, E>(
   })
 }
 
-const ToggleBold = ToggleMarkCommand("bold")
+const ToggleBold = commands.toggleMark("bold")
 
 describe("CommandExecutor.replay", () => {
   it("non-strict replay returns the actual output and does not push a new history entry", async () => {

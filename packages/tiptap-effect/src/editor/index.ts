@@ -34,6 +34,7 @@ export {
   type EditorSchemaNodes,
   type EditorSchemaMarks,
   type EditorSpec,
+  type SchemaMismatchPolicy,
 } from "./internal/types"
 export {
   selectionAtom,
@@ -164,10 +165,12 @@ export const makeEditorAtom = <
 
       return yield* Effect.gen(function* () {
         const subscriptionOptions: TransactionSubscriptionOptions<N, M> = {
-          devSchemaCheck: spec.devSchemaCheck === true,
+          onSchemaMismatch: spec.onSchemaMismatch ?? "log",
           schema: spec.schema,
         }
-        yield* installTransactionSubscription(subscriptionOptions)
+        yield* installTransactionSubscription(subscriptionOptions).pipe(
+          Effect.mapError((cause) => new EditorInitError({ cause })),
+        )
         yield* installEditableSubscription(spec.editableAtom)
         yield* installEditorPropsSubscription(spec.editorPropsAtom)
         yield* installEditorFinalizer(nodeViewStore)

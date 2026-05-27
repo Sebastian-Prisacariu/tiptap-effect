@@ -11,7 +11,7 @@ import { defineEditorSchema } from "tiptap-effect/schema"
 import type { NodeDefinition } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
 import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 
 interface MentionAttrs extends Record<string, unknown> {
   userId: string
@@ -62,6 +62,9 @@ const contextSchema = defineEditorSchema({
   marks: { bold: BoldMark },
 })
 
+const LessonEditor = createEditor(lessonSchema)
+const ContextEditor = createEditor(contextSchema)
+
 const docWithMention = {
   type: "doc",
   content: [
@@ -97,9 +100,8 @@ describe("React NodeView (leaf)", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-nv-1")}
+          editor={LessonEditor}
           spec={{
-            id: EditorId("ed-nv-1"),
-            schema: lessonSchema,
             defaultContent: docWithMention,
           }}
         >
@@ -121,9 +123,8 @@ describe("React NodeView (leaf)", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-nv-provider")}
+          editor={ContextEditor}
           spec={{
-            id: EditorId("ed-nv-provider"),
-            schema: contextSchema,
             defaultContent: docWithMention,
           }}
         >

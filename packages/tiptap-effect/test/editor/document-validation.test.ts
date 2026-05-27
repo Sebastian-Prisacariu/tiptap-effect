@@ -31,7 +31,7 @@ afterEach(() => {
 })
 
 const collectWarnings = async (
-  effect: Effect.Effect<void>,
+  effect: Effect.Effect<void, unknown>,
 ): Promise<ReadonlyArray<unknown>> => {
   const messages: Array<unknown> = []
   const logger = Logger.make<unknown, void>((options) => {
@@ -88,13 +88,14 @@ describe("schema-extension dedup", () => {
   })
 })
 
-describe("devSchemaCheck", () => {
-  it("does not run a dev check when devSchemaCheck is unset (default off)", async () => {
+describe("onSchemaMismatch", () => {
+  it("can skip schema checks when onSchemaMismatch is ignore", async () => {
     const id = EditorId("ed-dsc-off")
     const editorAtom = makeEditorAtom({
       id,
       schema: lessonSchema,
       defaultContent: validDoc,
+      onSchemaMismatch: "ignore",
     })
     const _keep = registry.subscribe(editorAtom, () => {})
     const handle = await waitForAtom(registry, editorAtom)
@@ -114,13 +115,13 @@ describe("devSchemaCheck", () => {
     expect(messages).toHaveLength(0)
   })
 
-  it("keeps the transaction subscription healthy when devSchemaCheck=true and the doc remains valid", async () => {
+  it("keeps the transaction subscription healthy when onSchemaMismatch=log and the doc remains valid", async () => {
     const id = EditorId("ed-dsc-valid")
     const editorAtom = makeEditorAtom({
       id,
       schema: lessonSchema,
       defaultContent: validDoc,
-      devSchemaCheck: true,
+      onSchemaMismatch: "log",
     })
     const _keep = registry.subscribe(editorAtom, () => {})
     const handle = await waitForAtom(registry, editorAtom)
@@ -144,7 +145,7 @@ describe("devSchemaCheck", () => {
     )
 
     expect(messages).toHaveLength(1)
-    expect(String(messages[0])).toContain("devSchemaCheck")
+    expect(String(messages[0])).toContain("onSchemaMismatch")
   })
 
 })

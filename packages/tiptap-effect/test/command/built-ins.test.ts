@@ -1,13 +1,7 @@
 import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { CommandExecutor } from "tiptap-effect/command"
-import {
-  DeleteNodeAtCommand,
-  InsertTextCommand,
-  ReplaceNodeAtCommand,
-  SetContentCommand,
-} from "tiptap-effect/command/commands"
+import { CommandExecutor, defineEditorCommands } from "tiptap-effect/command"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
@@ -19,6 +13,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -51,7 +46,7 @@ describe("Built-in commands", () => {
     await runtime.runPromise(
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
-        yield* exec.run(editor, InsertTextCommand, { text: "X" })
+        yield* exec.run(editor, commands.insertText, { text: "X" })
       }),
     )
     expect(editor.getText()).toContain("X")
@@ -80,12 +75,12 @@ describe("Built-in commands", () => {
     const newDoc = {
       type: "doc",
       content: [{ type: "paragraph", content: [{ type: "text", text: "replaced" }] }],
-    }
+    } as const
 
     await runtime.runPromise(
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
-        yield* exec.run(editor, SetContentCommand, { content: newDoc })
+        yield* exec.run(editor, commands.setContent, { content: newDoc })
       }),
     )
     expect(editor.getText()).toBe("replaced")
@@ -124,7 +119,7 @@ describe("Built-in commands", () => {
     await runtime.runPromise(
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
-        yield* exec.run(editor, DeleteNodeAtCommand, { pos: secondParagraphPos })
+        yield* exec.run(editor, commands.deleteNodeAt, { pos: secondParagraphPos })
       }),
     )
     expect(editor.getText()).toBe("first")
@@ -160,7 +155,7 @@ describe("Built-in commands", () => {
     await runtime.runPromise(
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
-        yield* exec.run(editor, ReplaceNodeAtCommand, {
+        yield* exec.run(editor, commands.replaceNodeAt, {
           pos: paragraphPos,
           content: {
             type: "paragraph",

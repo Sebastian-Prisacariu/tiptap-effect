@@ -4,6 +4,29 @@ export * as EditorError from "./EditorError"
 export * as EditorReact from "./EditorReact"
 export * as EditorRef from "./EditorRef"
 
+export { createEditor } from "./createEditor"
+export {
+  defineMark,
+  defineNode,
+  defineSchema,
+  documentAtom as typedDocumentAtom,
+  EditorUnavailable,
+  InvalidDocument,
+  InvalidInsertion,
+  InvalidMark,
+  InvalidNode,
+  type AnyEditorSchema,
+  type DocumentOf,
+  type EditorSchema,
+  type MarkDefinition,
+  type MarkJSON,
+  type MarkOf,
+  type NodeDefinition,
+  type NodeJSON,
+  type NodeOf,
+  type TypedEditorError,
+} from "./schema"
+
 export type {
   Editor as EditorInstance,
   Event as MiniEditorEvent,
@@ -69,4 +92,3 @@ export {
   useSubscribe as useEditorSubscribe,
   useText as useEditorText,
 } from "./EditorReact"
-

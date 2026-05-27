@@ -1,12 +1,5 @@
 /**
  * Type-only tests for the locked-down public API.
- *
- * These assertions run during `tsc --noEmit`. They verify that:
- *   1. `useRawEditor()` (no arg) is a TS error.
- *   2. `useRawEditor({ unsafe: true })` is allowed.
- *   3. No public hook (other than useRawEditor) returns an object with an
- *      `editor` field.
- *   4. `Reverse` exposes only the two sentinels.
  */
 import type { Atom } from "@effect-atom/atom"
 import type { Editor as TiptapEditor } from "@tiptap/core"
@@ -14,7 +7,9 @@ import type { Selection as ProseMirrorSelection } from "@tiptap/pm/state"
 import { Effect, Schema } from "effect"
 import {
   defineCommand,
+  createEditor,
   defineEditorSchema,
+  defineNodeDefinition,
   Reverse,
   selectedNodeAtom,
   selectionAtom,
@@ -34,6 +29,7 @@ import type {
   Command,
   CommandApplicationError,
   CurrentEditor,
+  DocumentOf,
   EditorCommand,
   ReverseKind,
   useDispatch,
@@ -164,3 +160,99 @@ const _userId: string = _nodeViewProps.attrs.userId
 const _unsafeNode: unknown = _nodeViewProps.unsafe.node
 void _userId
 void _unsafeNode
+
+// 11) Schema-bound editor commands infer document, node, and attrs types.
+type CommandInput<C> = C extends Command<string, infer In, any, any, any>
+  ? In
+  : never
+
+const ImageNode = defineNodeDefinition({
+  name: "image",
+  attrsSchema: Schema.Struct({
+    src: Schema.String,
+    alt: Schema.optional(Schema.String),
+  }),
+  group: "block",
+  atom: true,
+})
+
+const _editorCommandsSchema = defineEditorSchema({
+  nodes: {
+    doc: DocNode,
+    paragraph: ParagraphNode,
+    text: TextNode,
+    heading: HeadingNode,
+    image: ImageNode,
+  },
+  marks: { bold: BoldMark },
+})
+
+const LessonEditor = createEditor(_editorCommandsSchema, {
+  commands: ({ editorCommand, schema, helpers }) => ({
+    insertCallout: editorCommand({
+      op: "lesson.callout.insert",
+      description: () => "Insert callout",
+      inputSchema: Schema.Struct({ text: Schema.String }),
+      outputSchema: Schema.Struct({ previousContent: schema.Document }),
+      apply: (chain, { text }) => chain.insertContent(text),
+      reverseSetup: (state) => ({
+        previousContent: helpers.documentFromState(state),
+      }),
+      applyReverse: (chain, _input, { previousContent }) =>
+        chain.setContent(previousContent as never),
+    }),
+  }),
+})
+
+type _BoundDoc = DocumentOf<typeof _editorCommandsSchema>
+const _validBoundDoc: _BoundDoc = {
+  type: "doc",
+  content: [{ type: "paragraph", content: [{ type: "text", text: "ok" }] }],
+}
+
+const _setContentInput: CommandInput<typeof LessonEditor.commands.setContent> = {
+  content: _validBoundDoc,
+}
+void _setContentInput
+
+const _setContentRejectsNode: CommandInput<typeof LessonEditor.commands.setContent> = {
+  // @ts-expect-error -- setContent requires a full schema document, not a node.
+  content: { type: "paragraph" },
+}
+void _setContentRejectsNode
+
+const _validHeadingAttrs: CommandInput<typeof LessonEditor.commands.updateNodeAttrsBySelector> = {
+  selector: { type: "heading", attrs: { level: 2 } },
+  attrs: { level: 3 },
+}
+void _validHeadingAttrs
+
+// @ts-expect-error -- image attrs do not include heading level.
+const _invalidImageAttrs: CommandInput<typeof LessonEditor.commands.updateNodeAttrsBySelector> = {
+  selector: { type: "image" },
+  attrs: { level: 2 },
+}
+void _invalidImageAttrs
+
+const _missingSelectorType: CommandInput<typeof LessonEditor.commands.updateNodeAttrsBySelector> = {
+  // @ts-expect-error -- attr updates require a typed selector.
+  selector: { textIncludes: "Intro" },
+  attrs: { level: 2 },
+}
+void _missingSelectorType
+
+const _textOnlyFind: CommandInput<typeof LessonEditor.commands.findMatches> = {
+  selector: { textIncludes: "Intro" },
+}
+void _textOnlyFind
+
+const _textOnlyWithAttrs: CommandInput<typeof LessonEditor.commands.findMatches> = {
+  // @ts-expect-error -- text-only selectors cannot filter attrs without type.
+  selector: { textIncludes: "Intro", attrs: { level: 2 } },
+}
+void _textOnlyWithAttrs
+
+const _customCommandInput: CommandInput<typeof LessonEditor.commands.insertCallout> = {
+  text: "hello",
+}
+void _customCommandInput

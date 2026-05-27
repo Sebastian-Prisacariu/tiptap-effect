@@ -7,12 +7,14 @@ import { EditorScope, TiptapView, useRawEditor } from "tiptap-effect/react"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { BoldMark } from "tiptap-effect/schema"
 import { DocNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 
 const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+
+const LessonEditor = createEditor(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -45,9 +47,8 @@ describe("EditorScope + StrictMode", () => {
         <RegistryContext.Provider value={registry}>
           <EditorScope
             id={EditorId("ed-strict")}
+            editor={LessonEditor}
             spec={{
-              id: EditorId("ed-strict"),
-              schema: lessonSchema,
               defaultContent: validDoc,
             }}
           >

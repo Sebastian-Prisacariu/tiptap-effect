@@ -1,6 +1,14 @@
 export {
   defineEditorSchema,
   type EditorSchema,
+  type AnyEditorSchema,
+  type DocumentOf,
+  type NodeOf,
+  type MarkOf,
+  type InsertableNodeOf,
+  type InsertableContentOf,
+  type NodeNameOf,
+  type AttrsOfNode,
   type NodeJSON,
   type MarkJSON,
 } from "./define"

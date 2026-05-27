@@ -4,8 +4,7 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { Schema, Effect } from "effect"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { InsertTextCommand } from "tiptap-effect/command/commands"
-import { EditorId } from "tiptap-effect"
+import { createEditor, EditorId } from "tiptap-effect"
 import {
   EditorScope,
   TiptapView,
@@ -116,11 +115,13 @@ describe("NodeView lifecycle", () => {
     }
 
     const schema = makeSchema(MentionChip)
+    const editorKit = createEditor(schema)
     const { container } = render(
       <Wrapper>
         <EditorScope
           id={EditorId("ed-nv-remove")}
-          spec={{ id: EditorId("ed-nv-remove"), schema, defaultContent: docWithMentions }}
+          editor={editorKit}
+          spec={{ defaultContent: docWithMentions }}
         >
           <TiptapView />
           <Probe />
@@ -166,11 +167,13 @@ describe("NodeView lifecycle", () => {
     }
 
     const schema = makeSchema(MentionChip)
+    const editorKit = createEditor(schema)
     const rendered = render(
       <Wrapper>
         <EditorScope
           id={EditorId("ed-nv-dispose")}
-          spec={{ id: EditorId("ed-nv-dispose"), schema, defaultContent: docWithMentions }}
+          editor={editorKit}
+          spec={{ defaultContent: docWithMentions }}
         >
           <TiptapView />
           <Probe />
@@ -223,12 +226,14 @@ describe("NodeView lifecycle", () => {
     }
 
     const schema = makeSchema(MentionChip)
+    const editorKit = createEditor(schema)
     const rendered = render(
       <React.StrictMode>
         <Wrapper>
           <EditorScope
             id={EditorId("ed-nv-strict")}
-            spec={{ id: EditorId("ed-nv-strict"), schema, defaultContent: docWithMentions }}
+            editor={editorKit}
+            spec={{ defaultContent: docWithMentions }}
           >
             <TiptapView />
           </EditorScope>
@@ -258,7 +263,7 @@ describe("NodeView lifecycle", () => {
         <button
           type="button"
           data-node-view-button={attrs.userId}
-          onClick={() => void dispatch(InsertTextCommand, { text: "!" })}
+          onClick={() => void dispatch(commands.insertText, { text: "!" })}
         >
           @{attrs.userId}
         </button>
@@ -271,11 +276,14 @@ describe("NodeView lifecycle", () => {
     }
 
     const schema = makeSchema(MentionChip)
+    const editorKit = createEditor(schema)
+    const commands = editorKit.commands
     const { container } = render(
       <Wrapper>
         <EditorScope
           id={EditorId("ed-nv-dispatch")}
-          spec={{ id: EditorId("ed-nv-dispatch"), schema, defaultContent: docWithMentions }}
+          editor={editorKit}
+          spec={{ defaultContent: docWithMentions }}
         >
           <TiptapView />
           <Probe />
@@ -324,6 +332,7 @@ describe("NodeView lifecycle", () => {
       },
       marks: {},
     })
+    const editorKit = createEditor(schema)
 
     const docWithCallout = {
       type: "doc",
@@ -340,7 +349,8 @@ describe("NodeView lifecycle", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-nv-contentdom")}
-          spec={{ id: EditorId("ed-nv-contentdom"), schema, defaultContent: docWithCallout }}
+          editor={editorKit}
+          spec={{ defaultContent: docWithCallout }}
         >
           <TiptapView />
         </EditorScope>
@@ -378,6 +388,7 @@ describe("NodeView atom sharing", () => {
     }
 
     const schema = makeSchema(MentionChip)
+    const editorKit = createEditor(schema)
     const docWithDuplicateUser = {
       type: "doc",
       content: [
@@ -396,7 +407,8 @@ describe("NodeView atom sharing", () => {
       <Wrapper>
         <EditorScope
           id={EditorId("ed-nv-family")}
-          spec={{ id: EditorId("ed-nv-family"), schema, defaultContent: docWithDuplicateUser }}
+          editor={editorKit}
+          spec={{ defaultContent: docWithDuplicateUser }}
         >
           <TiptapView />
         </EditorScope>

@@ -2,8 +2,7 @@ import { Registry, Result } from "@effect-atom/atom"
 import { Effect, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { defineCommand, Reverse } from "tiptap-effect/command"
-import { CommandExecutor } from "tiptap-effect/command"
-import { InsertTextCommand } from "tiptap-effect/command/commands"
+import { CommandExecutor, defineEditorCommands } from "tiptap-effect/command"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { editorRuntime } from "tiptap-effect/runtime"
 import { defineEditorSchema } from "tiptap-effect/schema"
@@ -16,6 +15,7 @@ const lessonSchema = defineEditorSchema({
   nodes: { doc: DocNode, paragraph: ParagraphNode, text: TextNode },
   marks: { bold: BoldMark },
 })
+const commands = defineEditorCommands(lessonSchema)
 
 const validDoc = {
   type: "doc",
@@ -71,7 +71,7 @@ describe("CommandExecutor.undo — interrupts in-flight commands first", () => {
       registry,
       Effect.gen(function* () {
         const exec = yield* CommandExecutor
-        yield* exec.run(editor, InsertTextCommand, { text: "X" })
+        yield* exec.run(editor, commands.insertText, { text: "X" })
       }),
     )
     const afterX = editor.getText()

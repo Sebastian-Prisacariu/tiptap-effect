@@ -2,6 +2,7 @@
   "name": "tiptap-effect-mini",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -11,7 +12,9 @@
     "./EditorAtom": "./src/EditorAtom.ts",
     "./EditorError": "./src/EditorError.ts",
     "./EditorReact": "./src/EditorReact.ts",
-    "./EditorRef": "./src/EditorRef.ts"
+    "./EditorRef": "./src/EditorRef.ts",
+    "./createEditor": "./src/createEditor.tsx",
+    "./schema": "./src/schema.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

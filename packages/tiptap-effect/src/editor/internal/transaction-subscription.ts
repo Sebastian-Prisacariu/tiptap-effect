@@ -5,7 +5,7 @@ import { TransactionBus } from "../../runtime/internal/transaction-bus"
 import { EditorContext } from "./context"
 import { checkDocumentSchema } from "./document-validation"
 import { makeSnapshot } from "./snapshot"
-import type { EditorSchemaMarks, EditorSchemaNodes } from "./types"
+import type { EditorSchemaMarks, EditorSchemaNodes, SchemaMismatchPolicy } from "./types"
 
 interface TiptapTransactionEvent {
   readonly transaction: {
@@ -28,7 +28,7 @@ interface InstallOptions<
   N extends EditorSchemaNodes = EditorSchemaNodes,
   M extends EditorSchemaMarks = EditorSchemaMarks,
 > {
-  readonly devSchemaCheck?: boolean
+  readonly onSchemaMismatch?: SchemaMismatchPolicy
   readonly schema?: EditorSchema<N, M>
 }
 
@@ -50,16 +50,25 @@ const installTransactionSubscription = <
     if (installedSubscriptions.has(editor)) return
 
     const schema = options.schema
-    const devSchemaCheck =
-      options.devSchemaCheck === true && schema !== undefined
+    const onSchemaMismatch = options.onSchemaMismatch ?? "log"
+    const shouldCheckSchema =
+      onSchemaMismatch !== "ignore" && schema !== undefined
+
+    const checkSchema = (state: unknown) => {
+      if (!shouldCheckSchema || schema === undefined) return
+      const check = checkDocumentSchema(schema, state, onSchemaMismatch)
+      if (onSchemaMismatch === "throw") {
+        Effect.runSync(check)
+      } else {
+        Effect.runFork(check)
+      }
+    }
 
     const transactionHandler = (props: TiptapTransactionEvent) => {
       const snapshot = snapshotForEditor(props.transaction, props.editor.state)
       Effect.runFork(bus.push(snapshot.editorId, snapshot))
 
-      if (devSchemaCheck && schema !== undefined) {
-        Effect.runFork(checkDocumentSchema(schema, snapshot.stateAfter))
-      }
+      checkSchema(snapshot.stateAfter)
     }
 
     const focusHandler = (props: TiptapFocusEvent) => {
@@ -85,8 +94,8 @@ const installTransactionSubscription = <
     })
     yield* bus.push(initialSnapshot.editorId, initialSnapshot)
 
-    if (devSchemaCheck && schema !== undefined) {
-      yield* checkDocumentSchema(schema, initialSnapshot.stateAfter)
+    if (shouldCheckSchema && schema !== undefined) {
+      yield* checkDocumentSchema(schema, initialSnapshot.stateAfter, onSchemaMismatch)
     }
 
     const cleanup = () => {

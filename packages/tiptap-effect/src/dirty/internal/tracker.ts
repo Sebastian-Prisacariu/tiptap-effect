@@ -2,8 +2,8 @@ import { Effect, Layer, Stream, SubscriptionRef } from "effect"
 import type { EditorId } from "../../types"
 
 /**
- * Per-editor "last saved" doc JSON tracker. `MarkSavedCommand` writes into this
- * service; `dirtyAtom` derives `current.doc !== lastSaved.doc` from it.
+ * Per-editor "last saved" doc JSON tracker. Schema-bound `markSaved` commands
+ * write into this service; `dirtyAtom` derives `current.doc !== lastSaved.doc`.
  *
  * Keyed by `EditorId`. The `SubscriptionRef` stays alive for the lifetime of
  * the runtime because dirty state is a UX concern that benefits from surviving

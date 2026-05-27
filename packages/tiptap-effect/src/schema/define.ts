@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Schema, SchemaAST } from "effect"
 import { getSchemaByResolvedExtensions, Mark as TiptapMarkExt, Node as TiptapNodeExt } from "@tiptap/core"
 import type { Extensions } from "@tiptap/core"
 import { Node as ProseMirrorNode, type Schema as ProseMirrorSchema } from "@tiptap/pm/model"
@@ -97,9 +97,39 @@ export interface EditorSchema<
   readonly NodeUnion: Schema.Schema<NodeJSONFor<N, M>>
   readonly MarkUnion: Schema.Schema<MarkJSONFor<M>>
   readonly Document: Schema.Schema<DocumentJSONFor<N, M>>
+  readonly nodeAttrsSchemas: Readonly<Record<string, Schema.Schema<Record<string, unknown>>>>
+  readonly partialNodeAttrsSchemas: Readonly<Record<string, Schema.Schema<Partial<Record<string, unknown>>>>>
   readonly tiptapExtensions: Extensions
   readonly migrate: (raw: unknown) => unknown
 }
+
+export type AnyEditorSchema = EditorSchema<any, any>
+
+export type DocumentOf<S extends AnyEditorSchema> =
+  S extends EditorSchema<infer N, infer M> ? DocumentJSONFor<N, M> : never
+
+export type NodeOf<S extends AnyEditorSchema> =
+  S extends EditorSchema<infer N, infer M> ? NodeJSONFor<N, M> : never
+
+export type MarkOf<S extends AnyEditorSchema> =
+  S extends EditorSchema<infer _N, infer M> ? MarkJSONFor<M> : never
+
+export type InsertableNodeOf<S extends AnyEditorSchema> =
+  Exclude<NodeOf<S>, { readonly type: "doc" }>
+
+export type InsertableContentOf<S extends AnyEditorSchema> =
+  | InsertableNodeOf<S>
+  | ReadonlyArray<InsertableNodeOf<S>>
+  | string
+
+export type NodeNameOf<S extends AnyEditorSchema> = NodeOf<S>["type"] & string
+
+export type AttrsOfNode<
+  S extends AnyEditorSchema,
+  Name extends NodeNameOf<S>,
+> = Extract<NodeOf<S>, { readonly type: Name }> extends { readonly attrs?: infer Attrs }
+  ? Attrs
+  : Record<string, never>
 
 type ErasedNodeDefinition = NodeDefinition<string, Record<string, unknown>>
 type ErasedMarkDefinition = MarkDefinition<string, Record<string, unknown>>
@@ -198,6 +228,29 @@ const validateProseMirrorDocument = (
   }
 }
 
+const partialAttrsSchema = (
+  schema: Schema.Schema<Record<string, unknown>>,
+): Schema.Schema<Partial<Record<string, unknown>>> => {
+  try {
+    return Schema.partial(schema)
+  } catch {
+    let ast = schema.ast
+    while (SchemaAST.isTransformation(ast) || SchemaAST.isRefinement(ast)) {
+      if (SchemaAST.isTransformation(ast)) {
+        ast = ast.from
+      } else {
+        ast = ast.from
+      }
+    }
+    if (!SchemaAST.isTypeLiteral(ast)) {
+      return Schema.Unknown as Schema.Schema<Partial<Record<string, unknown>>>
+    }
+    return Schema.partial(
+      Schema.make<Record<string, unknown>>(ast),
+    ) as Schema.Schema<Partial<Record<string, unknown>>>
+  }
+}
+
 /**
  * Declare the schema for an editor. Generates:
  *  - a discriminated-union `Document` Schema for runtime validation,
@@ -244,6 +297,12 @@ export const defineEditorSchema = <
     ...nodeDefs.map(buildTiptapNode),
     ...markDefs.map(buildTiptapMark),
   ]
+  const nodeAttrsSchemas = Object.fromEntries(
+    nodeDefs.map((def) => [def.name, def.attrsSchema]),
+  ) as Readonly<Record<string, Schema.Schema<Record<string, unknown>>>>
+  const partialNodeAttrsSchemas = Object.fromEntries(
+    nodeDefs.map((def) => [def.name, partialAttrsSchema(def.attrsSchema)]),
+  ) as Readonly<Record<string, Schema.Schema<Partial<Record<string, unknown>>>>>
   const pmSchema = getSchemaByResolvedExtensions(tiptapExtensions)
   const Document = NodeUnion.pipe(
     Schema.filter(
@@ -263,6 +322,8 @@ export const defineEditorSchema = <
     NodeUnion,
     MarkUnion,
     Document,
+    nodeAttrsSchemas,
+    partialNodeAttrsSchemas,
     tiptapExtensions,
     migrate,
   }

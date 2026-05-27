@@ -472,7 +472,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
             return Effect.gen(function* () {
               const reserved = yield* reserveIfFree(editorId, op)
               if (!reserved) {
-                return yield* Effect.fail(new CommandBusyError({ op }))
+                return yield* new CommandBusyError({ op })
               }
               return yield* tracked(editorId, editor, cmd, input)
             }) as Effect.Effect<
@@ -592,7 +592,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
               return next
             })
             yield* PubSub.publish(notReversibleEvents, { editorId, op: last.op, at: now })
-            return yield* Effect.fail(new NotReversibleError({ op: last.op }))
+            return yield* new NotReversibleError({ op: last.op })
           }
           yield* Effect.sync(() => restoreSelection(editor, last.selection))
           const reverseFn = getReverseFn(last.reverseEffect)
@@ -646,13 +646,11 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
           const outputEquals = record.outputEquals
           if (outputEquals === undefined) return actual
           if (!outputEquals(record.output, actual)) {
-            return yield* Effect.fail(
-              new ReplayDivergenceError({
-                op: record.op,
-                expected: record.output,
-                actual,
-              }),
-            )
+            return yield* new ReplayDivergenceError({
+              op: record.op,
+              expected: record.output,
+              actual,
+            })
           }
           return actual
         })
@@ -665,7 +663,7 @@ export class CommandExecutor extends Effect.Service<CommandExecutor>()(
         (Effect.gen(function* () {
           const validated = yield* decodeInput(cmd, input)
           if (typeof cmd.reverse !== "function") {
-            return yield* Effect.fail(new NotReversibleError({ op: cmd.op }))
+            return yield* new NotReversibleError({ op: cmd.op })
           }
           const rawOutput = yield* cmd.forward(validated).pipe(
             Effect.provideService(CurrentEditor, editor),
