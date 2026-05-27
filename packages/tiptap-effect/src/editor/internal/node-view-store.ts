@@ -88,6 +88,12 @@ export class NodeViewStore {
     this.unmounts.set(key, unmount)
   }
 
+  clearUnmount(key: string, unmount: () => void): void {
+    if (this.unmounts.get(key) === unmount) {
+      this.unmounts.delete(key)
+    }
+  }
+
   dispose(): void {
     Array.from(this.unmounts.keys()).forEach((key) =>
       this.unmount(key, { defer: false }),

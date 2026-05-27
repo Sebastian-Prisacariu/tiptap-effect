@@ -136,6 +136,26 @@ describe("React menus", () => {
     })
   })
 
+  it("does not unregister a menu plugin after the editor is already destroyed", async () => {
+    const editor = makeEditor()
+
+    const rendered = render(
+      <BubbleMenu editor={editor} pluginKey="bubble">
+        Menu
+      </BubbleMenu>,
+    )
+
+    await waitFor(() => {
+      expect(editor.registerPlugin).toHaveBeenCalledTimes(1)
+    })
+
+    Object.assign(editor, { isDestroyed: true })
+
+    rendered.unmount()
+
+    expect(editor.unregisterPlugin).not.toHaveBeenCalled()
+  })
+
   it("renders FloatingMenu children through the same React shell", async () => {
     const editor = makeEditor()
 

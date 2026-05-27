@@ -1,10 +1,15 @@
 import { Result, useAtomValue } from "@effect-atom/atom-react"
 import { RegistryContext } from "@effect-atom/atom-react"
+import { Effect } from "effect"
 import * as React from "react"
-import * as ReactDOMClient from "react-dom/client"
 import { ScopedEditorContext, useEditorScope } from "./EditorScope"
 import { NodeViewContext } from "./NodeViewContext"
 import type { NodeViewEntry, NodeViewStore } from "../editor/internal/node-view-store"
+import {
+  acquireReactRoot,
+  type MountedReactRoot,
+} from "./internal/react-root-resource"
+import { runScopedResourceSync } from "./internal/scoped-resource"
 
 const useNodeViewEntries = (
   store: NodeViewStore | null,
@@ -74,8 +79,9 @@ const NodeViewRoot: React.FC<{
   store: NodeViewStore | null
 }> = ({ entry, registry, editorScope, renderNodeViewProviders, store }) => {
   const { Component } = entry
-  const rootRef = React.useRef<ReactDOMClient.Root | null>(null)
-  const rootAliveRef = React.useRef(false)
+  const rootRef = React.useRef<MountedReactRoot | null>(null)
+  const unmountRef = React.useRef<(() => void) | null>(null)
+  const pendingCleanupRef = React.useRef<object | null>(null)
 
   const content = renderNodeViewProviders?.(
     <RegistryContext.Provider value={registry}>
@@ -104,21 +110,43 @@ const NodeViewRoot: React.FC<{
   )
 
   React.useLayoutEffect(() => {
-    const root = rootRef.current ?? ReactDOMClient.createRoot(entry.dom)
-    rootRef.current = root
-    rootAliveRef.current = true
-    const unmount = () => {
-      if (!rootAliveRef.current) return
-      rootAliveRef.current = false
-      root.unmount()
-      if (rootRef.current === root) rootRef.current = null
+    pendingCleanupRef.current = null
+
+    if (rootRef.current === null) {
+      const rootResource = runScopedResourceSync(acquireReactRoot(entry.dom))
+      const root = rootResource.value
+      rootRef.current = root
+
+      let closed = false
+      unmountRef.current = () => {
+        if (closed) return
+        closed = true
+        rootResource.close()
+        if (rootRef.current === root) rootRef.current = null
+        if (unmountRef.current !== null) unmountRef.current = null
+      }
     }
+
+    const unmount = unmountRef.current
+    if (unmount === null) return
     store?.setUnmount(entry.key, unmount)
-    return () => {}
+    return () => {
+      const cleanupToken = {}
+      pendingCleanupRef.current = cleanupToken
+      queueMicrotask(() => {
+        if (pendingCleanupRef.current !== cleanupToken) return
+        pendingCleanupRef.current = null
+        store?.clearUnmount(entry.key, unmount)
+        unmount()
+      })
+    }
   }, [entry.dom, entry.key, store])
 
   React.useLayoutEffect(() => {
-    rootRef.current?.render(content)
+    const root = rootRef.current
+    if (root) {
+      Effect.runSync(root.render(content))
+    }
   })
 
   return null

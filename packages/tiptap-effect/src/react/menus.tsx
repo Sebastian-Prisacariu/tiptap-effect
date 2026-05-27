@@ -12,6 +12,8 @@ import { PluginKey, type Plugin } from "@tiptap/pm/state"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { useEditorScope } from "./EditorScope"
+import { acquireMenuPlugin } from "./internal/menu-plugin-resource"
+import { runScopedResourceSync } from "./internal/scoped-resource"
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>
 type MenuElementProps = React.HTMLAttributes<HTMLDivElement>
@@ -108,16 +110,24 @@ const MenuWithEditor = ({
       element,
     })
 
-    editor.registerPlugin(plugin)
+    const pluginResource = runScopedResourceSync(
+      acquireMenuPlugin({
+        editor,
+        element,
+        plugin,
+        pluginKey: resolvedPluginKey,
+      }),
+    )
+
     skipFirstUpdateRef.current = true
     setPluginInitialized(true)
 
+    let closed = false
     return () => {
+      if (closed) return
+      closed = true
       setPluginInitialized(false)
-      editor.unregisterPlugin(resolvedPluginKey)
-      window.requestAnimationFrame(() => {
-        if (element.parentNode) element.parentNode.removeChild(element)
-      })
+      pluginResource.close()
     }
   }, [createPlugin, editor, element, resolvedPluginKey])
 
