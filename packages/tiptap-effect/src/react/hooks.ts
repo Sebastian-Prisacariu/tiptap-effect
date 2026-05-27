@@ -1,7 +1,7 @@
-import { Result, useAtomValue, RegistryContext } from "@effect-atom/atom-react"
-import { type Atom, Registry } from "@effect-atom/atom"
+import { Result, useAtomValue } from "@effect-atom/atom-react"
+import { type Atom } from "@effect-atom/atom"
 import type { Editor as TiptapEditor } from "@tiptap/core"
-import { Data, Effect, Exit, Stream } from "effect"
+import { Data, Effect, Stream } from "effect"
 import * as React from "react"
 import {
   CommandBusyError,
@@ -16,10 +16,14 @@ import {
   type NotReversibleError,
   type TransactionalRollbackError,
 } from "../command"
-import { editorRuntime } from "../runtime"
 import { useEditorScope } from "./EditorScope"
 import { useNodeViewProps } from "./NodeViewContext"
 import type { EditorId } from "../types"
+import {
+  commandExecutorStreamAtom,
+  effectToResultPromise,
+  useScopedCommandRuntime,
+} from "./internal/scoped-command-runtime"
 
 export class DispatchNotReadyError extends Data.TaggedError("DispatchNotReadyError")<{
   readonly message: string
@@ -216,56 +220,6 @@ export function useEditorState<TSelectorResult>(
   }, [editor, transactionNumber, selector, equalityFn])
 }
 
-const useRegistry = (): Registry.Registry => {
-  const r = React.useContext(RegistryContext)
-  if (!r) {
-    throw new Error(
-      "tiptap-effect: missing <RegistryContext.Provider> from @effect-atom/atom-react",
-    )
-  }
-  return r
-}
-
-const runOneShotExit = <A, E>(
-  registry: Registry.Registry,
-  effect: Effect.Effect<A, E, CommandExecutor>,
-): Promise<Exit.Exit<A, E>> => {
-  // editorRuntime (Atom.runtime(TiptapLayer)) already provides CommandExecutor
-  // via the registry-scoped TiptapLayer. Do NOT re-provide it here — that would
-  // shadow the shared CommandHistory with a fresh one and break undo.
-  const oneShot = editorRuntime.atom(effect)
-  return Effect.runPromiseExit(
-    Registry.getResult(registry, oneShot, { suspendOnWaiting: true }),
-  )
-}
-
-const runOneShotResult = <A, E>(
-  registry: Registry.Registry,
-  effect: Effect.Effect<A, E, CommandExecutor>,
-): Promise<Result.Result<A, E>> =>
-  runOneShotExit(registry, effect).then(Result.fromExit)
-
-const resultToEffect = <A, E>(
-  result: Result.Result<A, E>,
-): Effect.Effect<A, E> => {
-  if (Result.isSuccess(result)) return Effect.succeed(result.value)
-  if (Result.isFailure(result)) return Effect.failCause(result.cause)
-  return Effect.never
-}
-
-const runOneShotEffect = <A, E>(
-  registry: Registry.Registry,
-  effect: Effect.Effect<A, E, CommandExecutor>,
-): Effect.Effect<A, E> =>
-  Effect.promise(() => runOneShotResult(registry, effect)).pipe(
-    Effect.flatMap(resultToEffect),
-  )
-
-const effectToResultPromise = <A, E>(
-  effect: Effect.Effect<A, E>,
-): Promise<Result.Result<A, E>> =>
-  Effect.runPromiseExit(effect).then(Result.fromExit)
-
 /**
  * Dispatch a Command. The default mode returns `Effect<Out, Err>` so command
  * calls compose naturally with `Effect.gen`.
@@ -282,7 +236,7 @@ export function useDispatch(
 ): DispatchEffect | DispatchPromise | DispatchResult {
   const { atom } = useEditorScope()
   const result = useAtomValue(atom)
-  const registry = useRegistry()
+  const runtime = useScopedCommandRuntime()
   const mode = options.mode ?? "effect"
 
   const dispatchEffect = React.useCallback(
@@ -300,9 +254,9 @@ export function useDispatch(
         const exec = yield* CommandExecutor
         return yield* exec.run(editor, cmd, input)
       })
-      return runOneShotEffect<Out, DispatchError<Err>>(registry, effect)
+      return runtime.runEffect<Out, DispatchError<Err>>(effect)
     },
-    [result, registry],
+    [result, runtime],
   )
 
   return React.useMemo(() => {
@@ -339,7 +293,7 @@ export function useHistory(
 ): HistoryEffect | HistoryPromise | HistoryResult {
   const { id, atom } = useEditorScope()
   const result = useAtomValue(atom)
-  const registry = useRegistry()
+  const runtime = useScopedCommandRuntime()
   const mode = options.mode ?? "effect"
 
   const pastResult = useAtomValue(pastRecordsAtom(id))
@@ -357,7 +311,7 @@ export function useHistory(
             new DispatchNotReadyError({ message: "tiptap-effect: editor not ready" }),
           )
         }
-        return runOneShotEffect(registry, run(result.value._internal.editor))
+        return runtime.runEffect(run(result.value._internal.editor))
       }
     return {
       undo: guarded((editor) =>
@@ -373,7 +327,7 @@ export function useHistory(
         }),
       ),
     }
-  }, [result, registry])
+  }, [result, runtime])
 
   return React.useMemo(
     () => {
@@ -436,13 +390,9 @@ export const useCommandErrors = (
   // via useAtomValue) which is known to work end-to-end through the runtime.
   const atom = React.useMemo(
     () =>
-      editorRuntime.atom(
-        Stream.unwrap(
-          Effect.map(CommandExecutor, (exec) =>
-            Stream.fromPubSub(exec.commandFailedEvents).pipe(
-              Stream.filter((event) => event.editorId === id),
-            ),
-          ),
+      commandExecutorStreamAtom((exec) =>
+        Stream.fromPubSub(exec.commandFailedEvents).pipe(
+          Stream.filter((event) => event.editorId === id),
         ),
       ),
     [id],
