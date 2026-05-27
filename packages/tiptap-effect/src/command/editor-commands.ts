@@ -9,8 +9,8 @@ import {
 } from "./command";
 import {
   DocumentSelectorError,
+  findDocumentMatches,
   type DocumentMatch,
-  type DocumentSelector,
 } from "../document/selector";
 import { CurrentEditor } from "./internal/current-editor";
 import { DirtyTracker } from "../dirty/internal/tracker";
@@ -22,6 +22,7 @@ import {
   type DeleteRangeInput,
   type DocumentCommandAuthoring,
   EditorCommandError,
+  type ChainDocumentPatchSpec,
   type InsertContentAtInput,
   type PreviousContentOutput,
   type ReplaceNodeAtInput,
@@ -42,8 +43,10 @@ export {
   EditorCommandError,
   type DocumentCommandAuthoring,
   type DocumentPatchAuthoring,
+  type DocumentPatchReverse,
+  type DocumentPatchReverseContext,
   type BaseDocumentPatchSpec,
-  type EditorDocumentPatchSpec,
+  type ChainDocumentPatchSpec,
   type EffectDocumentPatchSpec,
   type SelectorDocumentPatchSpec,
   type PreviousContentOutput,
@@ -270,7 +273,6 @@ export const defineEditorCommands = <
   options: EditorCommandOptions<S, Custom> = {},
 ): EditorCommands<S> & Custom => {
   const document = makeDocumentCommandAuthoring(schema);
-  const patch = document.patch;
 
   const builtIns: EditorCommands<S> = {
     toggleMark: (markName: string) =>
@@ -499,50 +501,50 @@ export const defineEditorCommands = <
           }),
         reverse: Reverse.skipOnUndo,
       }),
-    setContent: patch.editorCommand({
+    setContent: document.patch({
       op: "tiptap-effect.set-content",
       description: () => "Replace document content",
       inputSchema: document.inputs.setContent,
-      apply: (chain, { content }) => chain.setContent(content as JSONContent),
+      apply: ({ chain, input: { content } }) =>
+        chain.setContent(content as JSONContent),
     }),
-    clearContent: patch.editorCommand({
+    clearContent: document.patch({
       op: "tiptap-effect.clear-content",
       description: () => "Clear document",
       inputSchema: Schema.Void,
-      apply: (chain, _input) => chain.clearContent(true),
+      apply: ({ chain }) => chain.clearContent(true),
     }),
-    insertContentAt: patch.editorCommand({
+    insertContentAt: document.patch({
       op: "tiptap-effect.content.insert-at",
       description: ({ pos }) => `Insert content at ${pos}`,
       inputSchema: document.inputs.insertContentAt,
-      apply: (chain, { pos, content }) =>
+      apply: ({ chain, input: { pos, content } }) =>
         chain.insertContentAt(pos, content as JSONContent | string),
     }),
-    replaceRange: patch.editorCommand({
+    replaceRange: document.patch({
       op: "tiptap-effect.content.replace-range",
       description: ({ from, to }) => `Replace range ${from}-${to}`,
       inputSchema: document.inputs.replaceRange,
-      apply: (chain, { from, to, content }) =>
+      apply: ({ chain, input: { from, to, content } }) =>
         chain.insertContentAt({ from, to }, content as JSONContent | string),
     }),
-    deleteRange: patch.editorCommand({
+    deleteRange: document.patch({
       op: "tiptap-effect.content.delete-range",
       description: ({ from, to }) => `Delete range ${from}-${to}`,
       inputSchema: Schema.Struct({
         from: Schema.Number,
         to: Schema.Number,
       }),
-      apply: (chain, { from, to }) => chain.deleteRange({ from, to }),
+      apply: ({ chain, input: { from, to } }) => chain.deleteRange({ from, to }),
     }),
-    deleteNodeAt: patch.command({
+    deleteNodeAt: document.patch({
       op: "tiptap-effect.content.delete-node-at",
       description: ({ pos }) => `Delete node at ${pos}`,
       inputSchema: Schema.Struct({
         pos: Schema.Number,
       }),
-      apply: ({ pos }) =>
+      run: ({ editor, input: { pos } }) =>
         Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
           const node = editor.state.doc.nodeAt(pos);
           if (!node) {
             return yield* new ContentPositionError({
@@ -556,13 +558,12 @@ export const defineEditorCommands = <
             .run();
         }),
     }),
-    replaceNodeAt: patch.command({
+    replaceNodeAt: document.patch({
       op: "tiptap-effect.content.replace-node-at",
       description: ({ pos }) => `Replace node at ${pos}`,
       inputSchema: document.inputs.replaceNodeAt,
-      apply: ({ pos, content }) =>
+      run: ({ editor, input: { pos, content } }) =>
         Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
           const node = editor.state.doc.nodeAt(pos);
           if (!node) {
             return yield* new ContentPositionError({
@@ -579,60 +580,103 @@ export const defineEditorCommands = <
             .run();
         }),
     }),
-    updateNodeAttrsAt: defineCommand({
+    updateNodeAttrsAt: document.patch({
       op: "tiptap-effect.content.update-node-attrs",
       description: ({ pos, type }) => `Update ${type} attrs at ${pos}`,
       inputSchema: document.inputs.updateAttrsAt,
       outputSchema: document.outputs.updateAttrsAt,
-      forward: document.updateNodeAttrsAt,
-      reverse: document.restorePreviousContent,
+      run: ({ editor, input: { pos, type, attrs } }) =>
+        Effect.gen(function* () {
+          const node = editor.state.doc.nodeAt(pos);
+          if (!node) {
+            return yield* new ContentPositionError({
+              pos,
+              message: `No node found at position ${pos}`,
+            });
+          }
+          if (node.isText || node.type.name !== type) {
+            return yield* new EditorCommandError({
+              message: `Expected ${type} node at position ${pos}, found ${node.type.name}`,
+            });
+          }
+          const previousAttrs = node.attrs;
+          editor.view.dispatch(
+            editor.state.tr.setNodeMarkup(
+              pos,
+              undefined,
+              { ...node.attrs, ...attrs },
+              node.marks,
+            ),
+          );
+          return {
+            previousAttrs,
+            nodeType: node.type.name,
+          };
+        }),
     }),
-    insertContentAtMatch: patch.selectorCommand({
+    insertContentAtMatch: document.patch({
       op: "tiptap-effect.selector.insert-at-match",
       description: ({ selector, at = "after" }) =>
         `Insert content ${at} selector ${selector.type ?? "*"}`,
       inputSchema: document.inputs.selectorInsert,
-      apply: ({ selector, content, at = "after" }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          const matches = yield* patch.selectMatches(
-            editor.state.doc,
-            selector as DocumentSelector,
-            false,
-          );
-          const match = matches[0]!;
-          const pos =
-            at === "before"
-              ? match.from
-              : at === "after"
-                ? match.to
-                : at === "start"
-                  ? match.from + 1
-                  : match.to - 1;
-          editor.commands.insertContentAt(pos, content as JSONContent | string);
-          return 1;
-        }),
+      select: ({ input }) => ({ selector: input.selector, all: false }),
+      applyMatch: ({ editor, match, input: { content, at = "after" } }) => {
+        const pos =
+          at === "before"
+            ? match.from
+            : at === "after"
+              ? match.to
+              : at === "start"
+                ? match.from + 1
+                : match.to - 1;
+        editor.commands.insertContentAt(pos, content as JSONContent | string);
+      },
     }),
-    replaceMatches: patch.selectorCommand({
+    replaceMatches: document.patch({
       op: "tiptap-effect.selector.replace",
       description: ({ selector }) => `Replace selector ${selector.type ?? "*"}`,
       inputSchema: document.inputs.selectorReplace,
-      apply: patch.applyReplaceMatches,
+      select: ({ input }) => ({ selector: input.selector, all: input.all }),
+      applyMatch: ({ editor, match, input: { content } }) => {
+        editor.commands.insertContentAt(
+          { from: match.from, to: match.to },
+          content as JSONContent | string,
+        );
+      },
     }),
-    deleteMatches: patch.selectorCommand({
+    deleteMatches: document.patch({
       op: "tiptap-effect.selector.delete",
       description: ({ selector }) => `Delete selector ${selector.type ?? "*"}`,
       inputSchema: document.inputs.selectorMany,
-      apply: patch.applyDeleteMatches,
+      select: ({ input }) => ({ selector: input.selector, all: input.all }),
+      applyMatch: ({ editor, match }) => {
+        editor.commands.deleteRange({ from: match.from, to: match.to });
+      },
     }),
-    updateNodeAttrsBySelector: defineCommand({
+    updateNodeAttrsBySelector: document.patch({
       op: "tiptap-effect.selector.update-node-attrs",
       description: ({ selector }) =>
         `Update attrs for selector ${selector.type}`,
       inputSchema: document.inputs.updateBySelector,
-      outputSchema: document.outputs.patch,
-      forward: document.updateNodeAttrsBySelector,
-      reverse: document.restorePreviousContent,
+      select: ({ input }) => ({ selector: input.selector, all: input.all }),
+      applyMatch: ({ editor, match, input: { selector, attrs } }) =>
+        Effect.gen(function* () {
+          const node = editor.state.doc.nodeAt(match.pos);
+          if (!node || node.isText) {
+            return yield* new DocumentSelectorError({
+              selector,
+              message: `Cannot update attrs at position ${match.pos}`,
+            });
+          }
+          editor.view.dispatch(
+            editor.state.tr.setNodeMarkup(
+              match.pos,
+              undefined,
+              { ...node.attrs, ...attrs },
+              node.marks,
+            ),
+          );
+        }),
     }),
     findMatches: defineCommand({
       op: "tiptap-effect.selector.find",
@@ -649,7 +693,11 @@ export const defineEditorCommands = <
           text: Schema.String,
         }),
       ) as Schema.Schema<ReadonlyArray<DocumentMatch>>,
-      forward: document.findMatches,
+      forward: ({ selector }) =>
+        Effect.gen(function* () {
+          const editor = yield* CurrentEditor;
+          return findDocumentMatches(editor.state.doc, selector);
+        }),
       reverse: Reverse.skipOnUndo,
     }),
   };

@@ -190,30 +190,41 @@ const _editorCommandsSchema = defineEditorSchema({
 })
 
 const LessonEditor = createEditor(_editorCommandsSchema, {
-  commands: ({ command, editorCommand, document }) => ({
-    insertCallout: editorCommand({
+  commands: ({ document }) => ({
+    insertCallout: document.patch({
       op: "lesson.callout.insert",
       description: () => "Insert callout",
       inputSchema: Schema.Struct({ text: Schema.String }),
-      outputSchema: document.outputs.previousContent,
-      apply: (chain, { text }) => chain.insertContent(text),
-      reverseSetup: document.capturePreviousContent,
-      applyReverse: document.applyRestorePreviousContent,
+      apply: ({ chain, input: { text } }) => chain.insertContent(text),
     }),
-    replaceIntro: command({
+    replaceIntro: document.patch({
       op: "lesson.intro.replace",
       description: () => "Replace intro",
       inputSchema: Schema.Struct({ text: Schema.String }),
-      outputSchema: document.outputs.patch,
-      forward: ({ text }) =>
-        document.replaceMatches({
-          selector: { type: "heading", attrs: { level: 1 } },
-          content: {
+      select: () => ({
+        selector: { type: "heading", attrs: { level: 1 } },
+      }),
+      applyMatch: ({ editor, match, input: { text } }) => {
+        editor.commands.insertContentAt(
+          { from: match.from, to: match.to },
+          {
             type: "paragraph",
             content: [{ type: "text", text }],
           },
-        }),
-      reverse: document.restorePreviousContent,
+        )
+      },
+    }),
+  }),
+})
+
+createEditor(_editorCommandsSchema, {
+  commands: ({ document }) => ({
+    // @ts-expect-error -- document patch helpers were collapsed into `document.patch(...)`.
+    oldPatchHelper: document.patch.editorCommand({
+      op: "lesson.old",
+      description: () => "old",
+      inputSchema: Schema.Void,
+      apply: (chain: never) => chain,
     }),
   }),
 })

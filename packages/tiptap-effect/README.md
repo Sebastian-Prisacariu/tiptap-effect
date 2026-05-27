@@ -275,7 +275,7 @@ Built-ins cover common toolbar actions and precise document patching:
 ```ts
 const LessonEditor = createEditor(lessonSchema, {
   commands: ({ document }) => ({
-    insertCallout: document.patch.editorCommand({
+    insertCallout: document.patch({
       op: "lesson.callout.insert",
       description: () => "Insert callout",
       inputSchema: Schema.Struct({
@@ -283,7 +283,7 @@ const LessonEditor = createEditor(lessonSchema, {
         tone: Schema.Literal("info", "warning"),
       }),
       capturesSelection: true,
-      apply: (chain, input) =>
+      apply: ({ chain, input }) =>
         chain.insertContent({
           type: "callout",
           attrs: { title: input.title, tone: input.tone },
@@ -295,11 +295,50 @@ const LessonEditor = createEditor(lessonSchema, {
 ```
 
 `document.patch` is the authoring surface for custom commands that change the
-document and should undo by restoring the previous typed document. Use
-`document.patch.editorCommand` for Tiptap chain mutations, `document.patch.command`
-when the patch needs direct editor/state access, and
-`document.patch.selectorCommand` when the patch works through typed document
-selectors and should return `{ previousContent, count }`.
+document and should undo by restoring the previous typed document. It accepts
+chain patches with `apply`, effectful patches with `run`, and selector patches
+with `select` plus `applyMatch` or `applyMatches`. Selector patches return
+`{ previousContent, count }`.
+
+For commands with external side effects, provide a custom `reverse`. Call
+`restorePreviousDocument()` unless the command intentionally replaces the
+default document restore behavior:
+
+```ts
+const LessonEditor = createEditor(lessonSchema, {
+  commands: ({ document }) => ({
+    saveAndInsertCallout: document.patch({
+      op: "lesson.callout.save-and-insert",
+      description: () => "Save and insert callout",
+      inputSchema: Schema.Struct({
+        title: Schema.String,
+        tone: Schema.Literal("info", "warning"),
+      }),
+      outputSchema: Schema.Struct({
+        previousContent: lessonSchema.Document,
+        savedId: Schema.String,
+      }),
+      run: ({ editor, input }) =>
+        Effect.gen(function* () {
+          const savedId = yield* saveCallout(input)
+          editor.commands.insertContent({
+            type: "callout",
+            attrs: { title: input.title, tone: input.tone },
+            content: [{ type: "text", text: input.title }],
+          })
+          return { savedId }
+        }),
+      reverse: Effect.fnUntraced(function* ({
+        output,
+        restorePreviousDocument,
+      }) {
+        yield* restorePreviousDocument()
+        yield* deleteSavedCallout(output.savedId)
+      }),
+    }),
+  }),
+})
+```
 
 Custom commands appear on the same object as the built-ins:
 

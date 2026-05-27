@@ -2,6 +2,7 @@ import { Registry } from "@effect-atom/atom"
 import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { CommandExecutor, defineEditorCommands, type EditorRunnableCommand } from "tiptap-effect/command"
+import type { JSONContent } from "@tiptap/core"
 import { makeEditorAtom } from "tiptap-effect/editor"
 import { defineEditorSchema } from "tiptap-effect/schema"
 import { DocNode, HeadingNode, ParagraphNode, TextNode } from "tiptap-effect/schema"
@@ -14,19 +15,58 @@ const lessonSchema = defineEditorSchema({
 })
 
 const commands = defineEditorCommands(lessonSchema)
+const reverseEvents: Array<string> = []
 const customCommands = defineEditorCommands(lessonSchema, {
   commands: ({ document }) => ({
-    replaceBySelector: document.patch.selectorCommand({
+    replaceBySelector: document.patch({
       op: "test.replace-by-selector",
       description: () => "Replace by selector",
       inputSchema: document.inputs.selectorReplace,
-      apply: document.patch.applyReplaceMatches,
+      select: ({ input }) => ({ selector: input.selector, all: input.all }),
+      applyMatch: ({ editor, match, input }) => {
+        editor.commands.insertContentAt(
+          { from: match.from, to: match.to },
+          input.content as JSONContent | string,
+        )
+      },
     }),
-    appendBang: document.patch.editorCommand({
+    appendBang: document.patch({
       op: "test.append-bang",
       description: () => "Append bang",
       inputSchema: Schema.Void,
-      apply: (chain) => chain.insertContent("!"),
+      apply: ({ chain }) => chain.insertContent("!"),
+    }),
+    insertWithReverseCleanup: document.patch({
+      op: "test.insert-with-reverse-cleanup",
+      description: () => "Insert with reverse cleanup",
+      inputSchema: Schema.Struct({ text: Schema.String }),
+      run: ({ editor, input }) =>
+        Effect.sync(() => {
+          editor.commands.insertContent(input.text)
+          return { externalId: `external:${input.text}` }
+        }),
+      outputSchema: Schema.Struct({
+        previousContent: lessonSchema.Document,
+        externalId: Schema.String,
+      }),
+      reverse: ({ output, restorePreviousDocument }) =>
+        Effect.gen(function* () {
+          yield* restorePreviousDocument()
+          reverseEvents.push(output.externalId)
+        }),
+    }),
+    insertWithCustomReverseOnly: document.patch({
+      op: "test.insert-with-custom-reverse-only",
+      description: () => "Insert with custom reverse only",
+      inputSchema: Schema.Struct({ text: Schema.String }),
+      run: ({ editor, input }) =>
+        Effect.sync(() => {
+          editor.commands.insertContent(input.text)
+        }),
+      reverse: () =>
+        Effect.sync(() => {
+          reverseEvents.push("custom-only")
+        }),
     }),
   }),
 })
@@ -41,10 +81,19 @@ const headingDoc = {
   content: [{ type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Title" }] }],
 }
 
+const repeatedParagraphDoc = {
+  type: "doc",
+  content: [
+    { type: "paragraph", content: [{ type: "text", text: "one" }] },
+    { type: "paragraph", content: [{ type: "text", text: "two" }] },
+  ],
+}
+
 let registry: Registry.Registry
 let runtime: ManagedRuntime.ManagedRuntime<CommandExecutor, never>
 
 beforeEach(() => {
+  reverseEvents.length = 0
   registry = Registry.make()
   runtime = ManagedRuntime.make(CommandExecutor.Default as Layer.Layer<CommandExecutor>)
 })
@@ -183,7 +232,42 @@ describe("editor commands", () => {
     expect(editor.getText()).toBe("loose")
   })
 
-  it("custom command can use document.patch.selectorCommand and undo restores", async () => {
+  it("document.patch selector commands return previousContent and count", async () => {
+    const editor = await mountEditor("editor-commands-selector-count", repeatedParagraphDoc)
+    const before = editor.getJSON()
+
+    const output = await runCommand(editor, commands.deleteMatches, {
+      selector: { type: "paragraph" },
+      all: true,
+    })
+
+    expect(output.previousContent).toEqual(before)
+    expect(output.count).toBe(2)
+  })
+
+  it("document.patch effect commands preserve extra node attrs output", async () => {
+    const editor = await mountEditor("editor-commands-update-attrs-output", headingDoc)
+    let headingPos = -1
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "heading") {
+        headingPos = pos
+        return false
+      }
+      return true
+    })
+
+    const output = await runCommand(editor, commands.updateNodeAttrsAt, {
+      pos: headingPos,
+      type: "heading",
+      attrs: { level: 2 },
+    })
+
+    expect(output.previousContent).toEqual(headingDoc)
+    expect(output.previousAttrs).toEqual({ level: 1 })
+    expect(output.nodeType).toBe("heading")
+  })
+
+  it("custom selector patch can use document.patch and undo restores", async () => {
     const editor = await mountEditor("editor-commands-custom-document-command")
     const before = editor.getJSON()
 
@@ -206,7 +290,7 @@ describe("editor commands", () => {
     expect(editor.getJSON()).toEqual(before)
   })
 
-  it("custom editorCommand can use document.patch.editorCommand and undo restores", async () => {
+  it("custom chain patch can use document.patch and undo restores", async () => {
     const editor = await mountEditor("editor-commands-custom-editor-command")
     const before = editor.getJSON()
     editor.commands.setTextSelection(4)
@@ -221,6 +305,48 @@ describe("editor commands", () => {
       }),
     )
     expect(editor.getJSON()).toEqual(before)
+  })
+
+  it("custom effect patch reverse can restore then undo external side effects", async () => {
+    const editor = await mountEditor("editor-commands-custom-reverse-cleanup")
+    const before = editor.getJSON()
+    editor.commands.setTextSelection(4)
+
+    const output = await runCommand(editor, customCommands.insertWithReverseCleanup, {
+      text: "!",
+    })
+    expect(output.externalId).toBe("external:!")
+    expect(editor.getText()).toBe("abc!")
+
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const exec = yield* CommandExecutor
+        yield* exec.undo(editor)
+      }),
+    )
+
+    expect(editor.getJSON()).toEqual(before)
+    expect(reverseEvents).toEqual(["external:!"])
+  })
+
+  it("custom effect patch reverse can intentionally replace document restore", async () => {
+    const editor = await mountEditor("editor-commands-custom-reverse-only")
+    editor.commands.setTextSelection(4)
+
+    await runCommand(editor, customCommands.insertWithCustomReverseOnly, {
+      text: "!",
+    })
+    expect(editor.getText()).toBe("abc!")
+
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const exec = yield* CommandExecutor
+        yield* exec.undo(editor)
+      }),
+    )
+
+    expect(editor.getText()).toBe("abc!")
+    expect(reverseEvents).toEqual(["custom-only"])
   })
 
   it("custom document command validates selector attrs at runtime", async () => {
