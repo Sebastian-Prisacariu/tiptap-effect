@@ -81,13 +81,16 @@ function Toolbar() {
   const dispatch = useDispatch()
   const history = useHistory()
 
+  const toggleBold = Effect.gen(function* () {
+    yield* dispatch(LessonEditor.commands.focus, undefined)
+    yield* dispatch(LessonEditor.commands.toggleMark("bold"), undefined)
+  })
+
   return (
     <div>
       <button
         type="button"
-        onClick={() =>
-          Effect.runPromise(dispatch(LessonEditor.commands.toggleMark("bold"), undefined))
-        }
+        onClick={() => void Effect.runPromise(toggleBold)}
       >
         Bold
       </button>
@@ -195,16 +198,15 @@ const content: LessonDocument = {
   ],
 }
 
-await Effect.runPromise(
-  dispatch(LessonEditor.commands.setContent, { content }),
-)
-
-await Effect.runPromise(
-  dispatch(LessonEditor.commands.updateNodeAttrsBySelector, {
+const program = Effect.gen(function* () {
+  yield* dispatch(LessonEditor.commands.setContent, { content })
+  yield* dispatch(LessonEditor.commands.updateNodeAttrsBySelector, {
     selector: { type: "callout", attrs: { tone: "info" } },
     attrs: { tone: "warning" },
-  }),
-)
+  })
+})
+
+await Effect.runPromise(program)
 ```
 
 And TypeScript catches schema drift at the command boundary:
@@ -301,12 +303,33 @@ const LessonEditor = createEditor(lessonSchema, {
 Custom commands appear on the same object as the built-ins:
 
 ```ts
-await Effect.runPromise(
-  dispatch(LessonEditor.commands.insertCallout, {
+const program = Effect.gen(function* () {
+  yield* dispatch(LessonEditor.commands.insertCallout, {
     title: "Check your assumptions",
     tone: "warning",
-  }),
-)
+  })
+  yield* dispatch(LessonEditor.commands.markSaved(editorId), undefined)
+})
+
+await Effect.runPromise(program)
+```
+
+For event handlers that do not need Effect composition, ask for promise mode at
+the hook boundary:
+
+```tsx
+const dispatch = useDispatch({ mode: "promise" })
+
+<button
+  onClick={() =>
+    void dispatch(LessonEditor.commands.insertCallout, {
+      title: "Check your assumptions",
+      tone: "warning",
+    })
+  }
+>
+  Insert
+</button>
 ```
 
 `Reverse.notReversible` blocks the first undo attempt and emits a typed event.

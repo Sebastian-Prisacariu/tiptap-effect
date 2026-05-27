@@ -29,6 +29,7 @@ import type {
   Command,
   CommandApplicationError,
   CurrentEditor,
+  DispatchEffect,
   DocumentOf,
   EditorCommand,
   ReverseKind,
@@ -146,7 +147,7 @@ void _check8
 selectedNodeAtom(EditorId("locked-api"))
 
 // 9) useDispatch returns an Effect, not a promise or raw editor escape hatch.
-declare const _dispatch: ReturnType<typeof useDispatch>
+declare const _dispatch: DispatchEffect
 type _DispatchResult = ReturnType<typeof _dispatch>
 type _DispatchReturnsEffect = _DispatchResult extends Effect.Effect<unknown, unknown>
   ? "ok"

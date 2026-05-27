@@ -11,8 +11,6 @@ export {
 } from "./decoration"
 export {
   useDispatch,
-  useDispatchEffect,
-  useDispatchPromise,
   useEditorState,
   useEditorSlice,
   useEditorSubscribe,
@@ -22,8 +20,13 @@ export {
   useCommandErrors,
   useNodeViewActions,
   useRawEditor,
+  type DispatchEffect,
+  type DispatchMode,
+  type DispatchPromise,
+  type DispatchResult,
   type EditorStateSnapshot,
   type UseEditorStateOptions,
+  type UseDispatchOptions,
 } from "./hooks"
 export {
   NodeViewContext,

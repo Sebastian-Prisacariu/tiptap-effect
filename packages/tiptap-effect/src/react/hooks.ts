@@ -33,6 +33,27 @@ type DispatchError<Err> =
   | TransactionalRollbackError
   | DispatchNotReadyError
 
+export type DispatchMode = "effect" | "promise" | "result"
+
+export type DispatchEffect = <Op extends string, In, Out, Err>(
+  cmd: EditorRunnableCommand<Op, In, Out, Err>,
+  input: In,
+) => Effect.Effect<Out, DispatchError<Err>>
+
+export type DispatchPromise = <Op extends string, In, Out, Err>(
+  cmd: EditorRunnableCommand<Op, In, Out, Err>,
+  input: In,
+) => Promise<Out>
+
+export type DispatchResult = <Op extends string, In, Out, Err>(
+  cmd: EditorRunnableCommand<Op, In, Out, Err>,
+  input: In,
+) => Promise<Result.Result<Out, DispatchError<Err>>>
+
+export type UseDispatchOptions<M extends DispatchMode = "effect"> = {
+  readonly mode?: M
+}
+
 /**
  * Read a slice atom (e.g. `selectionAtom`, `isActiveAtom("bold")`).
  * The slice factory is called with the current scope's `EditorId`.
@@ -219,19 +240,25 @@ const effectToResultPromise = <A, E>(
   Effect.runPromiseExit(effect).then(Result.fromExit)
 
 /**
- * Dispatch a Command and receive an `Effect<Out, Err>`. Run it with
- * `Effect.runPromise`, compose it into a larger Effect program, or use
- * `useDispatchPromise` when working in promise-land.
+ * Dispatch a Command. The default mode returns `Effect<Out, Err>` so command
+ * calls compose naturally with `Effect.gen`.
+ *
+ * Use `{ mode: "promise" }` for React event handlers that want a rejecting
+ * Promise, or `{ mode: "result" }` when the boundary should never throw.
  */
-export const useDispatch = (): (<Op extends string, In, Out, Err>(
-  cmd: EditorRunnableCommand<Op, In, Out, Err>,
-  input: In,
-) => Effect.Effect<Out, DispatchError<Err>>) => {
+export function useDispatch(): DispatchEffect
+export function useDispatch(options: UseDispatchOptions<"effect">): DispatchEffect
+export function useDispatch(options: UseDispatchOptions<"promise">): DispatchPromise
+export function useDispatch(options: UseDispatchOptions<"result">): DispatchResult
+export function useDispatch(
+  options: UseDispatchOptions<DispatchMode> = {},
+): DispatchEffect | DispatchPromise | DispatchResult {
   const { atom } = useEditorScope()
   const result = useAtomValue(atom)
   const registry = useRegistry()
+  const mode = options.mode ?? "effect"
 
-  return React.useCallback(
+  const dispatchEffect = React.useCallback(
     <Op extends string, In, Out, Err>(
       cmd: EditorRunnableCommand<Op, In, Out, Err>,
       input: In,
@@ -250,29 +277,23 @@ export const useDispatch = (): (<Op extends string, In, Out, Err>(
     },
     [result, registry],
   )
-}
 
-/**
- * Backwards-compatible alias for `useDispatch`.
- */
-export const useDispatchEffect = useDispatch
-
-/**
- * Dispatch a Command and receive a `Promise<Result<Out, Err>>`.
- */
-export const useDispatchPromise = (): (<Op extends string, In, Out, Err>(
-  cmd: EditorRunnableCommand<Op, In, Out, Err>,
-  input: In,
-) => Promise<Result.Result<Out, DispatchError<Err>>>) => {
-  const dispatch = useDispatch()
-  return React.useCallback(
-    <Op extends string, In, Out, Err>(
-      cmd: EditorRunnableCommand<Op, In, Out, Err>,
-      input: In,
-    ): Promise<Result.Result<Out, DispatchError<Err>>> =>
-      effectToResultPromise(dispatch(cmd, input)),
-    [dispatch],
-  )
+  return React.useMemo(() => {
+    if (mode === "promise") {
+      return <Op extends string, In, Out, Err>(
+        cmd: EditorRunnableCommand<Op, In, Out, Err>,
+        input: In,
+      ): Promise<Out> => Effect.runPromise(dispatchEffect(cmd, input))
+    }
+    if (mode === "result") {
+      return <Op extends string, In, Out, Err>(
+        cmd: EditorRunnableCommand<Op, In, Out, Err>,
+        input: In,
+      ): Promise<Result.Result<Out, DispatchError<Err>>> =>
+        effectToResultPromise(dispatchEffect(cmd, input))
+    }
+    return dispatchEffect
+  }, [dispatchEffect, mode])
 }
 
 /**

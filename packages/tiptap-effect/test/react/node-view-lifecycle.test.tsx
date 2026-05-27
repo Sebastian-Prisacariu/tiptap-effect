@@ -8,7 +8,7 @@ import { createEditor, EditorId } from "tiptap-effect"
 import {
   EditorScope,
   TiptapView,
-  useDispatchPromise,
+  useDispatch,
   useNodeViewProps,
   useRawEditor,
 } from "tiptap-effect/react"
@@ -257,7 +257,7 @@ describe("NodeView lifecycle", () => {
     let exposedEditor: ReturnType<typeof useRawEditor> = null
 
     const MentionChip: React.FC = () => {
-      const dispatch = useDispatchPromise()
+      const dispatch = useDispatch({ mode: "result" })
       const { attrs } = useNodeViewProps<MentionAttrs>()
       return (
         <button

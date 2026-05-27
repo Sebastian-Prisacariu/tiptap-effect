@@ -7,8 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   EditorScope,
   TiptapView,
+  type DispatchEffect,
+  type DispatchPromise,
+  type DispatchResult,
   useDispatch,
-  useDispatchPromise,
   useRawEditor,
 } from "tiptap-effect/react"
 import { defineEditorSchema } from "tiptap-effect/schema"
@@ -49,7 +51,7 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 describe("useDispatch", () => {
   it("returns an Effect that, when run, dispatches the Command and toggles bold", async () => {
     let exposed: {
-      dispatch: ReturnType<typeof useDispatch>
+      dispatch: DispatchEffect
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
@@ -94,17 +96,17 @@ describe("useDispatch", () => {
   })
 })
 
-describe("useDispatchPromise", () => {
+describe("useDispatch result mode", () => {
   it("returns Promise<Result> instead of throwing", async () => {
     let exposed: {
-      dispatchPromise: ReturnType<typeof useDispatchPromise>
+      dispatchResult: DispatchResult
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
     const Probe: React.FC = () => {
-      const dispatchPromise = useDispatchPromise()
+      const dispatchResult = useDispatch({ mode: "result" })
       const editor = useRawEditor({ unsafe: true })
-      exposed = { dispatchPromise, editor }
+      exposed = { dispatchResult, editor }
       return null
     }
 
@@ -134,10 +136,91 @@ describe("useDispatchPromise", () => {
 
     let result: Result.Result<unknown, unknown> | null = null
     await act(async () => {
-      result = await exposed!.dispatchPromise(ToggleBold, undefined)
+      result = await exposed!.dispatchResult(ToggleBold, undefined)
     })
     expect(result).not.toBeNull()
     expect(Result.isSuccess(result!)).toBe(true)
     expect(editor.isActive("bold")).toBe(true)
+  })
+})
+
+describe("useDispatch modes", () => {
+  it("mode=promise resolves command output directly", async () => {
+    let exposed: {
+      dispatchPromise: DispatchPromise
+      editor: ReturnType<typeof useRawEditor>
+    } | null = null
+
+    const Probe: React.FC = () => {
+      const dispatchPromise = useDispatch({ mode: "promise" })
+      const editor = useRawEditor({ unsafe: true })
+      exposed = { dispatchPromise, editor }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-dispatch-mode-promise")}
+          editor={LessonEditor}
+          spec={{
+            defaultContent: validDoc,
+          }}
+        >
+          <TiptapView />
+          <Probe />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposed).not.toBeNull()
+      expect(exposed!.editor).not.toBeNull()
+    })
+
+    const editor = exposed!.editor!
+    editor.commands.focus()
+    editor.commands.setTextSelection({ from: 1, to: 4 })
+
+    let output: unknown = null
+    await act(async () => {
+      output = await exposed!.dispatchPromise(ToggleBold, undefined)
+    })
+
+    expect(output).toMatchObject({ wasActive: false, from: 1, to: 4 })
+    expect(editor.isActive("bold")).toBe(true)
+  })
+
+  it("mode=result resolves a Result without throwing", async () => {
+    let exposed: {
+      dispatchResult: DispatchResult
+    } | null = null
+
+    const Probe: React.FC = () => {
+      const dispatchResult = useDispatch({ mode: "result" })
+      exposed = { dispatchResult }
+      return null
+    }
+
+    render(
+      <Wrapper>
+        <EditorScope
+          id={EditorId("ed-dispatch-mode-result")}
+          editor={LessonEditor}
+          spec={{
+            defaultContent: { type: "doc", content: [{ type: "callout" }] },
+          }}
+        >
+          <Probe />
+        </EditorScope>
+      </Wrapper>,
+    )
+
+    await waitFor(() => {
+      expect(exposed).not.toBeNull()
+    })
+
+    const result = await exposed!.dispatchResult(ToggleBold, undefined)
+    expect(Result.isFailure(result)).toBe(true)
   })
 })

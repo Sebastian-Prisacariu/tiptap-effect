@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   EditorScope,
   TiptapView,
-  useDispatchPromise,
+  type DispatchResult,
+  useDispatch,
   useHistoryPromise,
   useRawEditor,
 } from "tiptap-effect/react"
@@ -45,16 +46,16 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <RegistryContext.Provider value={registry}>{children}</RegistryContext.Provider>
 )
 
-describe("useDispatchPromise + useHistoryPromise", () => {
+describe("useDispatch result mode + useHistoryPromise", () => {
   it("dispatch toggles bold; history.undo restores", async () => {
     let exposed: {
-      dispatch: ReturnType<typeof useDispatchPromise>
+      dispatch: DispatchResult
       history: ReturnType<typeof useHistoryPromise>
       editor: ReturnType<typeof useRawEditor>
     } | null = null
 
     const Probe: React.FC = () => {
-      const dispatch = useDispatchPromise()
+      const dispatch = useDispatch({ mode: "result" })
       const history = useHistoryPromise()
       const editor = useRawEditor({ unsafe: true })
       exposed = { dispatch, history, editor }
@@ -118,9 +119,9 @@ describe("useDispatchPromise + useHistoryPromise", () => {
     // the atom is already resolved. We verify the runtime path of the
     // guard by manually calling dispatch right after render before any
     // act(). In practice we'll see Success quickly.
-    let exposed: ReturnType<typeof useDispatchPromise> | null = null
+    let exposed: DispatchResult | null = null
     const Probe: React.FC = () => {
-      exposed = useDispatchPromise()
+      exposed = useDispatch({ mode: "result" })
       return null
     }
     render(
@@ -145,7 +146,7 @@ describe("useDispatchPromise + useHistoryPromise", () => {
 
   it("history is scoped to the current EditorScope", async () => {
     let exposedA: {
-      dispatch: ReturnType<typeof useDispatchPromise>
+      dispatch: DispatchResult
       history: ReturnType<typeof useHistoryPromise>
       editor: ReturnType<typeof useRawEditor>
     } | null = null
@@ -156,7 +157,7 @@ describe("useDispatchPromise + useHistoryPromise", () => {
 
     const ProbeA: React.FC = () => {
       exposedA = {
-        dispatch: useDispatchPromise(),
+        dispatch: useDispatch({ mode: "result" }),
         history: useHistoryPromise(),
         editor: useRawEditor({ unsafe: true }),
       }

@@ -51,15 +51,17 @@ const Toolbar = () => {
   const history = useHistory()
   const boldActive = useEditorSlice((id) => isActiveAtom(id, "bold"))
   const selectedText = useEditorSlice(selectedTextAtom)
+  const toggleBold = Effect.gen(function* () {
+    yield* dispatch(LessonEditor.commands.focus, undefined)
+    yield* dispatch(LessonEditor.commands.toggleMark("bold"), undefined)
+  })
 
   return (
     <div className="toolbar">
       <button
         type="button"
         data-active={boldActive}
-        onClick={() =>
-          Effect.runPromise(dispatch(LessonEditor.commands.toggleMark("bold"), undefined))
-        }
+        onClick={() => void Effect.runPromise(toggleBold)}
       >
         Bold
       </button>
