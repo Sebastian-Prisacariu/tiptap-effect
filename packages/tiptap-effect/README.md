@@ -274,7 +274,7 @@ Built-ins cover common toolbar actions and precise document patching:
 
 ```ts
 const LessonEditor = createEditor(lessonSchema, {
-  commands: ({ editorCommand, helpers, schema }) => ({
+  commands: ({ editorCommand, document }) => ({
     insertCallout: editorCommand({
       op: "lesson.callout.insert",
       description: () => "Insert callout",
@@ -282,19 +282,16 @@ const LessonEditor = createEditor(lessonSchema, {
         title: Schema.String,
         tone: Schema.Literal("info", "warning"),
       }),
-      outputSchema: Schema.Struct({ previousContent: schema.Document }),
+      outputSchema: document.outputs.previousContent,
       capturesSelection: true,
-      reverseSetup: (state) => ({
-        previousContent: helpers.documentFromState(state),
-      }),
+      reverseSetup: document.capturePreviousContent,
       apply: (chain, input) =>
         chain.insertContent({
           type: "callout",
           attrs: { title: input.title, tone: input.tone },
           content: [{ type: "text", text: input.title }],
         }),
-      applyReverse: (chain, _input, output) =>
-        chain.setContent(output.previousContent),
+      applyReverse: document.applyRestorePreviousContent,
     }),
   }),
 })

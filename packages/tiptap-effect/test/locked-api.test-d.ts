@@ -190,20 +190,37 @@ const _editorCommandsSchema = defineEditorSchema({
 })
 
 const LessonEditor = createEditor(_editorCommandsSchema, {
-  commands: ({ editorCommand, schema, helpers }) => ({
+  commands: ({ command, editorCommand, document }) => ({
     insertCallout: editorCommand({
       op: "lesson.callout.insert",
       description: () => "Insert callout",
       inputSchema: Schema.Struct({ text: Schema.String }),
-      outputSchema: Schema.Struct({ previousContent: schema.Document }),
+      outputSchema: document.outputs.previousContent,
       apply: (chain, { text }) => chain.insertContent(text),
-      reverseSetup: (state) => ({
-        previousContent: helpers.documentFromState(state),
-      }),
-      applyReverse: (chain, _input, { previousContent }) =>
-        chain.setContent(previousContent as never),
+      reverseSetup: document.capturePreviousContent,
+      applyReverse: document.applyRestorePreviousContent,
+    }),
+    replaceIntro: command({
+      op: "lesson.intro.replace",
+      description: () => "Replace intro",
+      inputSchema: Schema.Struct({ text: Schema.String }),
+      outputSchema: document.outputs.patch,
+      forward: ({ text }) =>
+        document.replaceMatches({
+          selector: { type: "heading", attrs: { level: 1 } },
+          content: {
+            type: "paragraph",
+            content: [{ type: "text", text }],
+          },
+        }),
+      reverse: document.restorePreviousContent,
     }),
   }),
+})
+
+createEditor(_editorCommandsSchema, {
+  // @ts-expect-error -- custom command factories use `document`, not old `helpers`.
+  commands: ({ helpers }) => ({}),
 })
 
 type _BoundDoc = DocumentOf<typeof _editorCommandsSchema>
@@ -258,3 +275,8 @@ const _customCommandInput: CommandInput<typeof LessonEditor.commands.insertCallo
   text: "hello",
 }
 void _customCommandInput
+
+const _customPlainCommandInput: CommandInput<typeof LessonEditor.commands.replaceIntro> = {
+  text: "replacement",
+}
+void _customPlainCommandInput

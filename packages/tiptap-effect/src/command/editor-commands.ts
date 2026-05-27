@@ -1,7 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { EditorState } from "@tiptap/pm/state";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   defineCommand,
   defineEditorCommand,
@@ -9,135 +7,44 @@ import {
   type Command,
   type EditorCommand,
 } from "./command";
-import {
-  findDocumentMatches,
-  DocumentSelectorError,
-  type DocumentMatch,
-  type DocumentSelector,
-} from "../document/selector";
+import { DocumentSelectorError, type DocumentMatch } from "../document/selector";
 import { CurrentEditor } from "./internal/current-editor";
 import { DirtyTracker } from "../dirty/internal/tracker";
-import type {
-  AnyEditorSchema,
-  AttrsOfNode,
-  DocumentOf,
-  InsertableContentOf,
-  NodeNameOf,
-} from "../schema/define";
+import type { AnyEditorSchema, DocumentOf } from "../schema/define";
 import type { EditorId } from "../types";
+import {
+  makeDocumentCommandAuthoring,
+  type ContentPositionError,
+  type DeleteRangeInput,
+  type DocumentCommandAuthoring,
+  type EditorCommandError,
+  type InsertContentAtInput,
+  type PreviousContentOutput,
+  type ReplaceNodeAtInput,
+  type ReplaceRangeInput,
+  type SelectorInput,
+  type SelectorInsertInput,
+  type SelectorManyInput,
+  type SelectorPatchOutput,
+  type SelectorReplaceInput,
+  type SetContentInput,
+  type UpdateAttrsAtOutput,
+  type UpdateNodeAttrsAtInput,
+  type UpdateNodeAttrsBySelectorInput,
+} from "./document-authoring";
 
-export class EditorCommandError extends Data.TaggedError(
-  "EditorCommandError",
-)<{
-  readonly message: string;
-}> {}
-
-export class ContentPositionError extends Data.TaggedError(
-  "ContentPositionError",
-)<{
-  readonly pos: number;
-  readonly message: string;
-}> {}
-
-type SelectorBase = {
-  readonly text?: string;
-  readonly textIncludes?: string;
-  readonly textMatches?: string;
-  readonly nth?: number;
-};
-
-type AnySchema = Schema.Schema<any, any, any>;
-
-type TextOnlySelector = SelectorBase & {
-  readonly type?: undefined;
-  readonly attrs?: never;
-};
-
-type TypedSelectorByNode<S extends AnyEditorSchema> = {
-  readonly [Name in NodeNameOf<S>]: SelectorBase & {
-    readonly type: Name;
-    readonly attrs?: Partial<AttrsOfNode<S, Name>>;
-  };
-}[NodeNameOf<S>];
-
-export type TypedNodeSelector<S extends AnyEditorSchema> =
-  | TextOnlySelector
-  | TypedSelectorByNode<S>;
-
-export type TypedNodeSelectorWithType<S extends AnyEditorSchema> =
-  TypedSelectorByNode<S>;
-
-type EditableNodeNameOf<S extends AnyEditorSchema> = Exclude<
-  NodeNameOf<S>,
-  "doc" | "text"
->;
-
-export type UpdateNodeAttrsAtInput<S extends AnyEditorSchema> = {
-  readonly [Name in EditableNodeNameOf<S>]: {
-    readonly pos: number;
-    readonly type: Name;
-    readonly attrs: Partial<AttrsOfNode<S, Name>>;
-  };
-}[EditableNodeNameOf<S>];
-
-export type UpdateNodeAttrsBySelectorInput<S extends AnyEditorSchema> = {
-  readonly [Name in EditableNodeNameOf<S>]: {
-    readonly selector: SelectorBase & {
-      readonly type: Name;
-      readonly attrs?: Partial<AttrsOfNode<S, Name>>;
-    };
-    readonly attrs: Partial<AttrsOfNode<S, Name>>;
-    readonly all?: boolean;
-  };
-}[EditableNodeNameOf<S>];
-
-type InsertContentAtInput<S extends AnyEditorSchema> = {
-  readonly pos: number;
-  readonly content: InsertableContentOf<S>;
-};
-
-type ReplaceRangeInput<S extends AnyEditorSchema> = {
-  readonly from: number;
-  readonly to: number;
-  readonly content: InsertableContentOf<S>;
-};
-
-type ReplaceNodeAtInput<S extends AnyEditorSchema> = {
-  readonly pos: number;
-  readonly content: InsertableContentOf<S>;
-};
-
-type SelectorInput<S extends AnyEditorSchema> = {
-  readonly selector: TypedNodeSelector<S>;
-};
-
-type SelectorManyInput<S extends AnyEditorSchema> = SelectorInput<S> & {
-  readonly all?: boolean;
-};
-
-type SelectorInsertInput<S extends AnyEditorSchema> = SelectorInput<S> & {
-  readonly content: InsertableContentOf<S>;
-  readonly at?: "before" | "after" | "start" | "end";
-};
-
-type SelectorReplaceInput<S extends AnyEditorSchema> = SelectorManyInput<S> & {
-  readonly content: InsertableContentOf<S>;
-};
-
-type PreviousContentOutput<S extends AnyEditorSchema> = {
-  readonly previousContent: DocumentOf<S>;
-};
-
-type SelectorPatchOutput<S extends AnyEditorSchema> =
-  PreviousContentOutput<S> & {
-    readonly count: number;
-  };
-
-type UpdateAttrsAtOutput<S extends AnyEditorSchema> =
-  PreviousContentOutput<S> & {
-    readonly previousAttrs: unknown;
-    readonly nodeType: string;
-  };
+export {
+  ContentPositionError,
+  EditorCommandError,
+  type DocumentCommandAuthoring,
+  type PreviousContentOutput,
+  type SelectorPatchOutput,
+  type TypedNodeSelector,
+  type TypedNodeSelectorWithType,
+  type UpdateAttrsAtOutput,
+  type UpdateNodeAttrsAtInput,
+  type UpdateNodeAttrsBySelectorInput,
+} from "./document-authoring";
 
 type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -155,184 +62,6 @@ type ParagraphChain<Chain> = Chain & {
 type LinkChain<Chain> = Chain & {
   readonly setLink: (attrs: { readonly href: string }) => Chain;
   readonly unsetLink: () => Chain;
-};
-
-const selectorBaseFields = {
-  text: Schema.optional(Schema.String),
-  textIncludes: Schema.optional(Schema.String),
-  textMatches: Schema.optional(Schema.String),
-  nth: Schema.optional(Schema.Number),
-};
-
-const unionOrNever = (schemas: ReadonlyArray<AnySchema>): AnySchema => {
-  if (schemas.length === 0) return Schema.Union() as unknown as AnySchema;
-  if (schemas.length === 1) return schemas[0]!;
-  return Schema.Union(
-    ...(schemas as [AnySchema, AnySchema, ...Array<AnySchema>]),
-  );
-};
-
-const textOnlySelectorSchema = Schema.Struct({
-  ...selectorBaseFields,
-  type: Schema.optional(Schema.Undefined),
-  attrs: Schema.optional(Schema.Undefined),
-});
-
-const nodeNames = (schema: AnyEditorSchema): ReadonlyArray<string> =>
-  Object.keys(schema.nodes);
-
-const editableNodeNames = (schema: AnyEditorSchema): ReadonlyArray<string> =>
-  nodeNames(schema).filter((name) => name !== "doc" && name !== "text");
-
-const nodeSelectorSchemas = (
-  schema: AnyEditorSchema,
-  names: ReadonlyArray<string> = nodeNames(schema),
-): ReadonlyArray<AnySchema> =>
-  names.map((name) =>
-    Schema.Struct({
-      ...selectorBaseFields,
-      type: Schema.Literal(name),
-      attrs: Schema.optional(
-        schema.partialNodeAttrsSchemas[name] ?? Schema.Struct({}),
-      ),
-    }),
-  );
-
-const typedSelectorSchema = <S extends AnyEditorSchema>(
-  schema: S,
-): Schema.Schema<TypedNodeSelector<S>> =>
-  unionOrNever([
-    textOnlySelectorSchema,
-    ...nodeSelectorSchemas(schema),
-  ]) as Schema.Schema<TypedNodeSelector<S>>;
-
-const insertableContentSchema = <S extends AnyEditorSchema>(
-  schema: S,
-): Schema.Schema<InsertableContentOf<S>> => {
-  const insertableNode = (schema.NodeUnion as unknown as AnySchema).pipe(
-    Schema.filter(
-      (node: unknown) => (node as { readonly type?: string }).type !== "doc",
-      {
-        message: () => "Insertable content cannot be a full doc node",
-      },
-    ),
-  );
-  return Schema.Union(
-    insertableNode,
-    Schema.Array(insertableNode),
-    Schema.String,
-  ) as unknown as Schema.Schema<InsertableContentOf<S>>;
-};
-
-const previousContentOutputSchema = <S extends AnyEditorSchema>(
-  schema: S,
-): Schema.Schema<PreviousContentOutput<S>> =>
-  Schema.Struct({
-    previousContent: schema.Document,
-  }) as Schema.Schema<PreviousContentOutput<S>>;
-
-const selectorPatchOutputSchema = <S extends AnyEditorSchema>(
-  schema: S,
-): Schema.Schema<SelectorPatchOutput<S>> =>
-  Schema.Struct({
-    previousContent: schema.Document,
-    count: Schema.Number,
-  }) as Schema.Schema<SelectorPatchOutput<S>>;
-
-const documentFromState = <S extends AnyEditorSchema>(
-  state: EditorState,
-): DocumentOf<S> => state.doc.toJSON() as DocumentOf<S>;
-
-const restorePreviousContent = <S extends AnyEditorSchema>(
-  previousContent: DocumentOf<S>,
-) =>
-  Effect.gen(function* () {
-    const editor = yield* CurrentEditor;
-    editor.commands.setContent(previousContent as JSONContent);
-  });
-
-const selectMatches = (
-  doc: ProseMirrorNode,
-  selector: DocumentSelector,
-  all: boolean | undefined,
-): Effect.Effect<ReadonlyArray<DocumentMatch>, DocumentSelectorError> =>
-  Effect.sync(() => {
-    const matches = findDocumentMatches(doc, selector);
-    return all === true ? matches : matches.slice(0, 1);
-  }).pipe(
-    Effect.flatMap((matches) =>
-      matches.length > 0
-        ? Effect.succeed(matches)
-        : Effect.fail(
-            new DocumentSelectorError({
-              selector,
-              message: "No document nodes matched selector",
-            }),
-          ),
-    ),
-  );
-
-const inputSchemas = <S extends AnyEditorSchema>(schema: S) => {
-  const insertable = insertableContentSchema(schema);
-  const selector = typedSelectorSchema(schema);
-  const editableNames = editableNodeNames(schema);
-  const editableSelectorSchemas = nodeSelectorSchemas(schema, editableNames);
-  const updateAttrsAt = unionOrNever(
-    editableNames.map((name) =>
-      Schema.Struct({
-        pos: Schema.Number,
-        type: Schema.Literal(name),
-        attrs: schema.partialNodeAttrsSchemas[name] ?? Schema.Struct({}),
-      }),
-    ),
-  ) as Schema.Schema<UpdateNodeAttrsAtInput<S>>;
-  const updateBySelector = unionOrNever(
-    editableNames.map((name, index) =>
-      Schema.Struct({
-        selector:
-          editableSelectorSchemas[index] ??
-          Schema.Struct({ type: Schema.Literal(name) }),
-        attrs: schema.partialNodeAttrsSchemas[name] ?? Schema.Struct({}),
-        all: Schema.optional(Schema.Boolean),
-      }),
-    ),
-  ) as Schema.Schema<UpdateNodeAttrsBySelectorInput<S>>;
-
-  return {
-    setContent: Schema.Struct({ content: schema.Document }) as Schema.Schema<{
-      readonly content: DocumentOf<S>;
-    }>,
-    insertContentAt: Schema.Struct({
-      pos: Schema.Number,
-      content: insertable,
-    }) as Schema.Schema<InsertContentAtInput<S>>,
-    replaceRange: Schema.Struct({
-      from: Schema.Number,
-      to: Schema.Number,
-      content: insertable,
-    }) as Schema.Schema<ReplaceRangeInput<S>>,
-    replaceNodeAt: Schema.Struct({
-      pos: Schema.Number,
-      content: insertable,
-    }) as Schema.Schema<ReplaceNodeAtInput<S>>,
-    selector: Schema.Struct({ selector }) as Schema.Schema<SelectorInput<S>>,
-    selectorMany: Schema.Struct({
-      selector,
-      all: Schema.optional(Schema.Boolean),
-    }) as Schema.Schema<SelectorManyInput<S>>,
-    selectorInsert: Schema.Struct({
-      selector,
-      content: insertable,
-      at: Schema.optional(Schema.Literal("before", "after", "start", "end")),
-    }) as Schema.Schema<SelectorInsertInput<S>>,
-    selectorReplace: Schema.Struct({
-      selector,
-      content: insertable,
-      all: Schema.optional(Schema.Boolean),
-    }) as Schema.Schema<SelectorReplaceInput<S>>,
-    updateAttrsAt,
-    updateBySelector,
-  };
 };
 
 export interface EditorCommands<S extends AnyEditorSchema> {
@@ -398,7 +127,7 @@ export interface EditorCommands<S extends AnyEditorSchema> {
   >;
   readonly setContent: EditorCommand<
     "tiptap-effect.set-content",
-    { readonly content: DocumentOf<S> },
+    SetContentInput<S>,
     PreviousContentOutput<S>
   >;
   readonly clearContent: EditorCommand<
@@ -418,7 +147,7 @@ export interface EditorCommands<S extends AnyEditorSchema> {
   >;
   readonly deleteRange: EditorCommand<
     "tiptap-effect.content.delete-range",
-    { readonly from: number; readonly to: number },
+    DeleteRangeInput,
     PreviousContentOutput<S>
   >;
   readonly deleteNodeAt: Command<
@@ -479,15 +208,11 @@ export interface EditorCommands<S extends AnyEditorSchema> {
   >;
 }
 
-export interface EditorCommandHelpers<S extends AnyEditorSchema> {
-  readonly documentFromState: (state: EditorState) => DocumentOf<S>;
-}
-
 export interface EditorCommandFactoryContext<S extends AnyEditorSchema> {
   readonly schema: S;
   readonly command: typeof defineCommand;
   readonly editorCommand: typeof defineEditorCommand;
-  readonly helpers: EditorCommandHelpers<S>;
+  readonly document: DocumentCommandAuthoring<S>;
 }
 
 export class EditorCommandCollisionError extends Error {
@@ -537,9 +262,7 @@ export const defineEditorCommands = <
   schema: S,
   options: EditorCommandOptions<S, Custom> = {},
 ): EditorCommands<S> & Custom => {
-  const inputs = inputSchemas(schema);
-  const previousOutput = previousContentOutputSchema(schema);
-  const patchOutput = selectorPatchOutputSchema(schema);
+  const document = makeDocumentCommandAuthoring(schema);
 
   const builtIns: EditorCommands<S> = {
     toggleMark: (markName: string) =>
@@ -762,7 +485,7 @@ export const defineEditorCommands = <
           Effect.gen(function* () {
             const editor = yield* CurrentEditor;
             const tracker = yield* DirtyTracker;
-            const json = documentFromState<S>(editor.state);
+            const json = document.currentFromState(editor.state);
             yield* tracker.markSaved(editorId, json);
             return { savedJSON: json };
           }),
@@ -771,52 +494,40 @@ export const defineEditorCommands = <
     setContent: defineEditorCommand({
       op: "tiptap-effect.set-content",
       description: () => "Replace document content",
-      inputSchema: inputs.setContent,
-      outputSchema: previousOutput,
+      inputSchema: document.inputs.setContent,
+      outputSchema: document.outputs.previousContent,
       apply: (chain, { content }) => chain.setContent(content as JSONContent),
-      reverseSetup: (state, _input) => ({
-        previousContent: documentFromState<S>(state),
-      }),
-      applyReverse: (chain, _input, { previousContent }) =>
-        chain.setContent(previousContent as JSONContent),
+      reverseSetup: document.capturePreviousContent,
+      applyReverse: document.applyRestorePreviousContent,
     }),
     clearContent: defineEditorCommand({
       op: "tiptap-effect.clear-content",
       description: () => "Clear document",
       inputSchema: Schema.Void,
-      outputSchema: previousOutput,
+      outputSchema: document.outputs.previousContent,
       apply: (chain, _input) => chain.clearContent(true),
-      reverseSetup: (state, _input) => ({
-        previousContent: documentFromState<S>(state),
-      }),
-      applyReverse: (chain, _input, { previousContent }) =>
-        chain.setContent(previousContent as JSONContent),
+      reverseSetup: document.capturePreviousContent,
+      applyReverse: document.applyRestorePreviousContent,
     }),
     insertContentAt: defineEditorCommand({
       op: "tiptap-effect.content.insert-at",
       description: ({ pos }) => `Insert content at ${pos}`,
-      inputSchema: inputs.insertContentAt,
-      outputSchema: previousOutput,
-      reverseSetup: (state, _input) => ({
-        previousContent: documentFromState<S>(state),
-      }),
+      inputSchema: document.inputs.insertContentAt,
+      outputSchema: document.outputs.previousContent,
+      reverseSetup: document.capturePreviousContent,
       apply: (chain, { pos, content }) =>
         chain.insertContentAt(pos, content as JSONContent | string),
-      applyReverse: (chain, _input, { previousContent }) =>
-        chain.setContent(previousContent as JSONContent),
+      applyReverse: document.applyRestorePreviousContent,
     }),
     replaceRange: defineEditorCommand({
       op: "tiptap-effect.content.replace-range",
       description: ({ from, to }) => `Replace range ${from}-${to}`,
-      inputSchema: inputs.replaceRange,
-      outputSchema: previousOutput,
-      reverseSetup: (state, _input) => ({
-        previousContent: documentFromState<S>(state),
-      }),
+      inputSchema: document.inputs.replaceRange,
+      outputSchema: document.outputs.previousContent,
+      reverseSetup: document.capturePreviousContent,
       apply: (chain, { from, to, content }) =>
         chain.insertContentAt({ from, to }, content as JSONContent | string),
-      applyReverse: (chain, _input, { previousContent }) =>
-        chain.setContent(previousContent as JSONContent),
+      applyReverse: document.applyRestorePreviousContent,
     }),
     deleteRange: defineEditorCommand({
       op: "tiptap-effect.content.delete-range",
@@ -825,13 +536,10 @@ export const defineEditorCommands = <
         from: Schema.Number,
         to: Schema.Number,
       }),
-      outputSchema: previousOutput,
-      reverseSetup: (state, _input) => ({
-        previousContent: documentFromState<S>(state),
-      }),
+      outputSchema: document.outputs.previousContent,
+      reverseSetup: document.capturePreviousContent,
       apply: (chain, { from, to }) => chain.deleteRange({ from, to }),
-      applyReverse: (chain, _input, { previousContent }) =>
-        chain.setContent(previousContent as JSONContent),
+      applyReverse: document.applyRestorePreviousContent,
     }),
     deleteNodeAt: defineCommand({
       op: "tiptap-effect.content.delete-node-at",
@@ -839,212 +547,64 @@ export const defineEditorCommands = <
       inputSchema: Schema.Struct({
         pos: Schema.Number,
       }),
-      outputSchema: previousOutput,
-      forward: ({ pos }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          const node = editor.state.doc.nodeAt(pos);
-          if (!node) {
-            return yield* new ContentPositionError({
-              pos,
-              message: `No node found at position ${pos}`,
-            });
-          }
-          const previousContent = documentFromState<S>(editor.state);
-          editor
-            .chain()
-            .deleteRange({ from: pos, to: pos + node.nodeSize })
-            .run();
-          return { previousContent };
-        }),
-      reverse: (_input, { previousContent }) =>
-        restorePreviousContent<S>(previousContent),
+      outputSchema: document.outputs.previousContent,
+      forward: document.deleteNodeAt,
+      reverse: document.restorePreviousContent,
     }),
     replaceNodeAt: defineCommand({
       op: "tiptap-effect.content.replace-node-at",
       description: ({ pos }) => `Replace node at ${pos}`,
-      inputSchema: inputs.replaceNodeAt,
-      outputSchema: previousOutput,
-      forward: ({ pos, content }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          const node = editor.state.doc.nodeAt(pos);
-          if (!node) {
-            return yield* new ContentPositionError({
-              pos,
-              message: `No node found at position ${pos}`,
-            });
-          }
-          const previousContent = documentFromState<S>(editor.state);
-          editor
-            .chain()
-            .insertContentAt(
-              { from: pos, to: pos + node.nodeSize },
-              content as JSONContent | string,
-            )
-            .run();
-          return { previousContent };
-        }),
-      reverse: (_input, { previousContent }) =>
-        restorePreviousContent<S>(previousContent),
+      inputSchema: document.inputs.replaceNodeAt,
+      outputSchema: document.outputs.previousContent,
+      forward: document.replaceNodeAt,
+      reverse: document.restorePreviousContent,
     }),
     updateNodeAttrsAt: defineCommand({
       op: "tiptap-effect.content.update-node-attrs",
       description: ({ pos, type }) => `Update ${type} attrs at ${pos}`,
-      inputSchema: inputs.updateAttrsAt,
-      outputSchema: Schema.Struct({
-        previousContent: schema.Document,
-        previousAttrs: Schema.Unknown,
-        nodeType: Schema.String,
-      }) as Schema.Schema<UpdateAttrsAtOutput<S>>,
-      forward: ({ pos, type, attrs }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          const node = editor.state.doc.nodeAt(pos);
-          if (!node) {
-            return yield* new ContentPositionError({
-              pos,
-              message: `No node found at position ${pos}`,
-            });
-          }
-          if (node.isText || node.type.name !== type) {
-            return yield* new EditorCommandError({
-              message: `Expected ${type} node at position ${pos}, found ${node.type.name}`,
-            });
-          }
-          const previousContent = documentFromState<S>(editor.state);
-          const previousAttrs = node.attrs;
-          editor.view.dispatch(
-            editor.state.tr.setNodeMarkup(
-              pos,
-              undefined,
-              { ...node.attrs, ...attrs },
-              node.marks,
-            ),
-          );
-          return { previousContent, previousAttrs, nodeType: node.type.name };
-        }),
-      reverse: (_input, { previousContent }) =>
-        restorePreviousContent<S>(previousContent),
+      inputSchema: document.inputs.updateAttrsAt,
+      outputSchema: document.outputs.updateAttrsAt,
+      forward: document.updateNodeAttrsAt,
+      reverse: document.restorePreviousContent,
     }),
     insertContentAtMatch: defineCommand({
       op: "tiptap-effect.selector.insert-at-match",
       description: ({ selector, at = "after" }) =>
         `Insert content ${at} selector ${selector.type ?? "*"}`,
-      inputSchema: inputs.selectorInsert,
-      outputSchema: patchOutput,
-      forward: ({ selector, content, at = "after" }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          const previousContent = documentFromState<S>(editor.state);
-          const matches = yield* selectMatches(
-            editor.state.doc,
-            selector as DocumentSelector,
-            false,
-          );
-          const match = matches[0]!;
-          const pos =
-            at === "before"
-              ? match.from
-              : at === "after"
-                ? match.to
-                : at === "start"
-                  ? match.from + 1
-                  : match.to - 1;
-          editor.commands.insertContentAt(pos, content as JSONContent | string);
-          return { previousContent, count: 1 };
-        }),
-      reverse: (_input, { previousContent }) =>
-        restorePreviousContent<S>(previousContent),
+      inputSchema: document.inputs.selectorInsert,
+      outputSchema: document.outputs.patch,
+      forward: document.insertContentAtMatch,
+      reverse: document.restorePreviousContent,
     }),
     replaceMatches: defineCommand({
       op: "tiptap-effect.selector.replace",
       description: ({ selector }) => `Replace selector ${selector.type ?? "*"}`,
-      inputSchema: inputs.selectorReplace,
-      outputSchema: patchOutput,
-      forward: ({ selector, content, all }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          const previousContent = documentFromState<S>(editor.state);
-          const matches = yield* selectMatches(
-            editor.state.doc,
-            selector as DocumentSelector,
-            all,
-          );
-          for (const match of [...matches].sort((a, b) => b.from - a.from)) {
-            editor.commands.insertContentAt(
-              { from: match.from, to: match.to },
-              content as JSONContent | string,
-            );
-          }
-          return { previousContent, count: matches.length };
-        }),
-      reverse: (_input, { previousContent }) =>
-        restorePreviousContent<S>(previousContent),
+      inputSchema: document.inputs.selectorReplace,
+      outputSchema: document.outputs.patch,
+      forward: document.replaceMatches,
+      reverse: document.restorePreviousContent,
     }),
     deleteMatches: defineCommand({
       op: "tiptap-effect.selector.delete",
       description: ({ selector }) => `Delete selector ${selector.type ?? "*"}`,
-      inputSchema: inputs.selectorMany,
-      outputSchema: patchOutput,
-      forward: ({ selector, all }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          const previousContent = documentFromState<S>(editor.state);
-          const matches = yield* selectMatches(
-            editor.state.doc,
-            selector as DocumentSelector,
-            all,
-          );
-          for (const match of [...matches].sort((a, b) => b.from - a.from)) {
-            editor.commands.deleteRange({ from: match.from, to: match.to });
-          }
-          return { previousContent, count: matches.length };
-        }),
-      reverse: (_input, { previousContent }) =>
-        restorePreviousContent<S>(previousContent),
+      inputSchema: document.inputs.selectorMany,
+      outputSchema: document.outputs.patch,
+      forward: document.deleteMatches,
+      reverse: document.restorePreviousContent,
     }),
     updateNodeAttrsBySelector: defineCommand({
       op: "tiptap-effect.selector.update-node-attrs",
       description: ({ selector }) =>
         `Update attrs for selector ${selector.type}`,
-      inputSchema: inputs.updateBySelector,
-      outputSchema: patchOutput,
-      forward: ({ selector, attrs, all }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          const previousContent = documentFromState<S>(editor.state);
-          const matches = yield* selectMatches(
-            editor.state.doc,
-            selector as DocumentSelector,
-            all,
-          );
-          for (const match of matches) {
-            const node = editor.state.doc.nodeAt(match.pos);
-            if (!node || node.isText) {
-              return yield* new DocumentSelectorError({
-                selector,
-                message: `Cannot update attrs at position ${match.pos}`,
-              });
-            }
-            editor.view.dispatch(
-              editor.state.tr.setNodeMarkup(
-                match.pos,
-                undefined,
-                { ...node.attrs, ...attrs },
-                node.marks,
-              ),
-            );
-          }
-          return { previousContent, count: matches.length };
-        }),
-      reverse: (_input, { previousContent }) =>
-        restorePreviousContent<S>(previousContent),
+      inputSchema: document.inputs.updateBySelector,
+      outputSchema: document.outputs.patch,
+      forward: document.updateNodeAttrsBySelector,
+      reverse: document.restorePreviousContent,
     }),
     findMatches: defineCommand({
       op: "tiptap-effect.selector.find",
       description: ({ selector }) => `Find selector ${selector.type ?? "*"}`,
-      inputSchema: inputs.selector,
+      inputSchema: document.inputs.selector,
       outputSchema: Schema.Array(
         Schema.Struct({
           pos: Schema.Number,
@@ -1056,14 +616,7 @@ export const defineEditorCommands = <
           text: Schema.String,
         }),
       ) as Schema.Schema<ReadonlyArray<DocumentMatch>>,
-      forward: ({ selector }) =>
-        Effect.gen(function* () {
-          const editor = yield* CurrentEditor;
-          return findDocumentMatches(
-            editor.state.doc,
-            selector as DocumentSelector,
-          );
-        }),
+      forward: document.findMatches,
       reverse: Reverse.skipOnUndo,
     }),
   };
@@ -1073,9 +626,7 @@ export const defineEditorCommands = <
       schema,
       command: defineCommand,
       editorCommand: defineEditorCommand,
-      helpers: {
-        documentFromState: (state) => documentFromState<S>(state),
-      },
+      document,
     }) ?? ({} as Custom);
 
   const collisions = Object.keys(custom).filter((key) =>

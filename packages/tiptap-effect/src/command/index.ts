@@ -42,14 +42,18 @@ export {
 } from "./command-sequence"
 export {
   defineEditorCommands,
+  ContentPositionError,
   EditorCommandError,
   EditorCommandCollisionError,
   type EditorCommands,
   type EditorCommandFactoryContext,
-  type EditorCommandHelpers,
   type EditorCommandOptions,
+  type DocumentCommandAuthoring,
+  type PreviousContentOutput,
+  type SelectorPatchOutput,
   type TypedNodeSelector,
   type TypedNodeSelectorWithType,
+  type UpdateAttrsAtOutput,
   type UpdateNodeAttrsAtInput,
   type UpdateNodeAttrsBySelectorInput,
 } from "./editor-commands"

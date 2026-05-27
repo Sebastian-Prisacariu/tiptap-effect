@@ -1,5 +1,5 @@
 import { Registry } from "@effect-atom/atom"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { CommandExecutor, defineEditorCommands, type EditorRunnableCommand } from "tiptap-effect/command"
 import { makeEditorAtom } from "tiptap-effect/editor"
@@ -14,6 +14,27 @@ const lessonSchema = defineEditorSchema({
 })
 
 const commands = defineEditorCommands(lessonSchema)
+const customCommands = defineEditorCommands(lessonSchema, {
+  commands: ({ command, editorCommand, document }) => ({
+    replaceBySelector: command({
+      op: "test.replace-by-selector",
+      description: () => "Replace by selector",
+      inputSchema: document.inputs.selectorReplace,
+      outputSchema: document.outputs.patch,
+      forward: document.replaceMatches,
+      reverse: document.restorePreviousContent,
+    }),
+    appendBang: editorCommand({
+      op: "test.append-bang",
+      description: () => "Append bang",
+      inputSchema: Schema.Void,
+      outputSchema: document.outputs.previousContent,
+      reverseSetup: document.capturePreviousContent,
+      apply: (chain) => chain.insertContent("!"),
+      applyReverse: document.applyRestorePreviousContent,
+    }),
+  }),
+})
 
 const validDoc = {
   type: "doc",
@@ -165,5 +186,69 @@ describe("editor commands", () => {
 
     await runCommand(editor, commands.setContent, { content: nextDoc })
     expect(editor.getText()).toBe("loose")
+  })
+
+  it("custom command can use document.replaceMatches and undo restores", async () => {
+    const editor = await mountEditor("editor-commands-custom-document-command")
+    const before = editor.getJSON()
+
+    await runCommand(editor, customCommands.replaceBySelector, {
+      selector: { type: "paragraph", text: "abc" },
+      content: {
+        type: "heading",
+        attrs: { level: 2 },
+        content: [{ type: "text", text: "Replaced" }],
+      },
+    })
+    expect(editor.getText()).toBe("Replaced")
+
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const exec = yield* CommandExecutor
+        yield* exec.undo(editor)
+      }),
+    )
+    expect(editor.getJSON()).toEqual(before)
+  })
+
+  it("custom editorCommand can use document snapshot helpers and undo restores", async () => {
+    const editor = await mountEditor("editor-commands-custom-editor-command")
+    const before = editor.getJSON()
+    editor.commands.setTextSelection(4)
+
+    await runCommand(editor, customCommands.appendBang, undefined)
+    expect(editor.getText()).toBe("abc!")
+
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const exec = yield* CommandExecutor
+        yield* exec.undo(editor)
+      }),
+    )
+    expect(editor.getJSON()).toEqual(before)
+  })
+
+  it("custom document command validates selector attrs at runtime", async () => {
+    const editor = await mountEditor("editor-commands-custom-invalid-selector", headingDoc)
+
+    await expectRejectTag(
+      runCommand(editor, customCommands.replaceBySelector, {
+        selector: { type: "heading", attrs: { level: 99 } },
+        content: { type: "paragraph", content: [{ type: "text", text: "bad" }] },
+      } as never),
+      "CommandValidationError",
+    )
+  })
+
+  it("custom document command reports missing selector matches", async () => {
+    const editor = await mountEditor("editor-commands-custom-missing-selector")
+
+    await expectRejectTag(
+      runCommand(editor, customCommands.replaceBySelector, {
+        selector: { type: "heading", text: "Missing" },
+        content: { type: "paragraph", content: [{ type: "text", text: "nope" }] },
+      }),
+      "DocumentSelectorError",
+    )
   })
 })
